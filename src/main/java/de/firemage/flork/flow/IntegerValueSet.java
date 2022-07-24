@@ -2,6 +2,8 @@ package de.firemage.flork.flow;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
+import java.util.function.BinaryOperator;
 
 public record IntegerValueSet(List<IntegerInterval> intervals) implements ValueSet {
 
@@ -229,28 +231,86 @@ public record IntegerValueSet(List<IntegerInterval> intervals) implements ValueS
         return resultSet;
     }
 
-    public IntegerValueSet add(IntegerValueSet other, boolean subtract) {
-        IntegerValueSet result = new IntegerValueSet(new ArrayList<>(this.intervals.size()));
+    public IntegerValueSet add(IntegerValueSet other) {
+        return handleBiFunc(other, (a, b) -> new FuncResult(a + b, MathUtil.checkAddForOverflow(a, b)));
+    }
+
+    public IntegerValueSet subtract(IntegerValueSet other) {
+        return handleBiFunc(other, (a, b) -> new FuncResult(a - b, MathUtil.checkSubForOverflow(a, b)));
+    }
+    
+    private IntegerValueSet handleBiFunc(IntegerValueSet other, BiFunction<Integer, Integer, FuncResult> func) {
+        ArrayList<IntegerInterval> result = new ArrayList<>(this.intervals.size());
         for (IntegerInterval myInterval : this.intervals) {
             for (IntegerInterval otherInterval : other.intervals) {
-                int min = myInterval.min + (subtract ? -otherInterval.max : otherInterval.min);
-                int max = myInterval.max + (subtract ? -otherInterval.min : otherInterval.max);
-                if (max < min) {
-                    // Overflow
-                    result = result.merge(IntegerValueSet.ofRange(min, Integer.MAX_VALUE));
-                    result = result.merge(IntegerValueSet.ofRange(Integer.MIN_VALUE, max));
-                } else {
-                    result = result.merge(IntegerValueSet.ofRange(min, max));
-                }
+                handleBiFuncOnInterval(myInterval, otherInterval, func, result);
             }
         }
-        return result;
+        return new IntegerValueSet(result);
+    }
+
+    private void handleBiFuncOnInterval(IntegerInterval lhs, IntegerInterval rhs,
+                                         BiFunction<Integer, Integer, FuncResult> func,
+                                         ArrayList<IntegerInterval> result) {
+        // Find the min and max values
+        FuncResult minMin = func.apply(lhs.min, rhs.min);
+        FuncResult minMax = func.apply(lhs.min, rhs.max);
+        FuncResult maxMin = func.apply(lhs.max, rhs.min);
+        FuncResult maxMax = func.apply(lhs.max, rhs.max);
+        
+        FuncResult min = minMin.min(minMax).min(maxMin).min(maxMax);
+        FuncResult max = minMin.max(minMax).max(maxMin).max(maxMax);
+
+        if (min.overflow == MathUtil.OverflowType.NONE && max.overflow == MathUtil.OverflowType.NONE) {
+            addInterval(result, new IntegerInterval(min.value, max.value));
+        } else if (min.overflow == MathUtil.OverflowType.POS_TO_NEG || max.overflow == MathUtil.OverflowType.NEG_TO_POS) {
+            // TODO report this guaranteed overflow
+            addInterval(result, new IntegerInterval(min.value, max.value));
+        } else if (min.overflow == MathUtil.OverflowType.NEG_TO_POS && max.overflow == MathUtil.OverflowType.POS_TO_NEG) {
+            // Anything is possible
+            addInterval(result, new IntegerInterval(Integer.MIN_VALUE, Integer.MAX_VALUE));
+        } else {
+            addInterval(result, new IntegerInterval(Integer.MIN_VALUE, max.value));
+            addInterval(result, new IntegerInterval(min.value, Integer.MAX_VALUE));
+        }
     }
 
     public record IntegerInterval(int min, int max) {
         public IntegerInterval {
             if (min > max) {
                 throw new IllegalStateException("min > max");
+            }
+        }
+    }
+
+    record FuncResult(int value, MathUtil.OverflowType overflow) {
+        public FuncResult min(FuncResult other) {
+            int relation = this.overflow.compareTo(other.overflow);
+            if (relation == 0) {
+                if (this.overflow == MathUtil.OverflowType.NEG_TO_POS) {
+                    return this.value <= other.value ? other : this;
+                } else {
+                    return this.value <= other.value ? this : other;
+                }
+            } else if (relation < 0) {
+                return this;
+            } else {
+                return other;
+            }
+        }
+
+        public FuncResult max(FuncResult other) {
+            int relation = this.overflow.compareTo(other.overflow);
+            if (relation == 0) {
+                if (this.overflow == MathUtil.OverflowType.NEG_TO_POS) {
+                    return this.value >= other.value ? other : this;
+                } else {
+                    return this.value >= other.value ? this : other;
+                }
+            } else if (relation < 0) {
+                return other;
+            } else {
+                return this;
             }
         }
     }

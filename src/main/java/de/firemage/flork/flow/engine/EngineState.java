@@ -71,13 +71,13 @@ public class EngineState {
     public void add() {
         IntegerValueSet rhs = (IntegerValueSet) getValueOf(this.stack.pop());
         IntegerValueSet lhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        this.stack.push(new ConcreteStackValue(lhs.add(rhs, false)));
+        this.stack.push(new ConcreteStackValue(lhs.add(rhs)));
     }
 
     public void subtract() {
         IntegerValueSet rhs = (IntegerValueSet) getValueOf(this.stack.pop());
         IntegerValueSet lhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        this.stack.push(new ConcreteStackValue(lhs.add(rhs, true)));
+        this.stack.push(new ConcreteStackValue(lhs.subtract(rhs)));
     }
 
     public void not() {
