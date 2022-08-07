@@ -1,7 +1,10 @@
 package de.firemage.flork.flow;
 
+import de.firemage.flork.flow.engine.Relation;
+import de.firemage.flork.flow.engine.RelationStatus;
+
 public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
-    
+
     public static BooleanValueSet bottom() {
         return new BooleanValueSet(State.BOTTOM);
     }
@@ -13,7 +16,7 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
     public static BooleanValueSet of(boolean value) {
         return new BooleanValueSet(value ? State.TRUE : State.FALSE);
     }
-    
+
     @Override
     public ValueSet merge(ValueSet other) {
         if (other instanceof BooleanValueSet set) {
@@ -28,7 +31,39 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
             throw new IllegalArgumentException("other must be a BooleanValueSet and not " + other.getClass().getName());
         }
     }
-    
+
+    @Override
+    public BooleanValueSet intersect(ValueSet o) {
+        BooleanValueSet other = (BooleanValueSet) o;
+        if (this.equals(other)) {
+            return this;
+        } else if (this.isTop()) {
+            return other;
+        } else if (other.isTop()) {
+            return this;
+        } else {
+            return BooleanValueSet.bottom();
+        }
+    }
+
+    @Override
+    public ValueSet symmetricDifference(ValueSet o) {
+        BooleanValueSet other = (BooleanValueSet) o;
+        if (this.equals(other)) {
+            return BooleanValueSet.bottom();
+        } else if (this.isBottom()) {
+            return other;
+        } else if (other.isBottom()) {
+            return this;
+        } else if (this.isTop()) {
+            return BooleanValueSet.of(!other.isTrue());
+        } else if (other.isTop()) {
+            return BooleanValueSet.of(!this.isTrue());
+        } else {
+            return BooleanValueSet.top();
+        }
+    }
+
     public BooleanValueSet not() {
         return switch (this.state) {
             case TOP -> BooleanValueSet.top();
@@ -37,25 +72,21 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
             case FALSE -> BooleanValueSet.of(true);
         };
     }
-    
+
     public boolean isTop() {
         return this.state == State.TOP;
     }
-    
+
     public boolean isFalse() {
         return this.state == State.FALSE;
     }
-    
+
     public boolean isTrue() {
         return this.state == State.TRUE;
     }
 
     public boolean isBottom() {
         return this.state == State.BOTTOM;
-    }
-
-    public enum State {
-        TOP, TRUE, FALSE, BOTTOM
     }
 
     @Override
@@ -72,5 +103,39 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
     public boolean isSupersetOf(ValueSet other) {
         BooleanValueSet set = (BooleanValueSet) other;
         return this.state == set.state || this.isTop() && !set.isBottom();
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return this.isBottom();
+    }
+
+    @Override
+    public RelationStatus fulfillsRelation(ValueSet o, Relation relation) {
+        BooleanValueSet other = (BooleanValueSet) o;
+        if (this.isBottom() || other.isBottom()) {
+            throw new IllegalStateException("Cannot compare bottom values");
+        }
+
+        return switch (relation) {
+            case EQUAL -> (this.isTop() || other.isTop()) ? RelationStatus.SOMETIMES :
+                (this.equals(other) ? RelationStatus.ALWAYS : RelationStatus.NEVER);
+            case NOT_EQUAL -> (this.isTop() || other.isTop()) ? RelationStatus.SOMETIMES :
+                (this.equals(other) ? RelationStatus.NEVER : RelationStatus.ALWAYS);
+            case LESS_THAN, LESS_THAN_EQUAL, GREATER_THAN, GREATER_THAN_EQUAL -> throw new UnsupportedOperationException();
+        };
+    }
+
+    @Override
+    public BooleanValueSet removeNotFulfillingValues(ValueSet o, Relation relation) {
+        return switch (relation) {
+            case EQUAL -> this.intersect(o);
+            case NOT_EQUAL -> throw new UnsupportedOperationException();
+            default -> throw new IllegalStateException("Cannot compare booleans with " + relation);
+        };
+    }
+
+    public enum State {
+        TOP, TRUE, FALSE, BOTTOM
     }
 }

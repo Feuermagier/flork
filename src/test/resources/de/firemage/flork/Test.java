@@ -1,7 +1,13 @@
 public class Test {
-    public static void foo(int x, int y) {
-        if (x > 0 && y < 0) {
-            int z = x - y;
+    public static int foo(int a, int b) {
+        return b + 1;
+    }
+    
+    public static int bar(int x, int y) {
+        if (x == y + 1) {
+            return 1;
+        } else {
+            return -1;
         }
     }
 }

@@ -1,5 +1,6 @@
 package de.firemage.flork.flow.engine;
 
+import de.firemage.flork.flow.MethodAnalysis;
 import de.firemage.flork.flow.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.reference.CtTypeReference;
@@ -9,18 +10,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class FlowEngine {
-    private final Set<EngineState> states;
+    private Set<EngineState> states;
 
     public FlowEngine(List<CtParameter<?>> parameters) {
-        Map<String, ValueSet> initialValues = new HashMap<>();
+        Map<String, VarState> initialValues = new HashMap<>();
+        Set<String> parameterNames = new HashSet<>();
         for (CtParameter<?> parameter : parameters) {
-            initialValues.put(parameter.getSimpleName(), ValueSet.topForType(parameter.getType()));
+            initialValues.put(parameter.getSimpleName(), new VarState(ValueSet.topForType(parameter.getType()), Set.of()));
+            parameterNames.add(parameter.getSimpleName());
         }
         this.states = new HashSet<>();
-        this.states.add(new EngineState(initialValues));
+        this.states.add(new EngineState(initialValues, parameterNames));
     }
 
     private FlowEngine(Set<EngineState> states) {
@@ -32,6 +36,10 @@ public class FlowEngine {
             .map(EngineState::fork)
             .filter(state -> state.assertTos(expectedTos))
             .collect(Collectors.toCollection(HashSet::new)));
+    }
+    
+    public void clear() {
+        this.states.clear();
     }
 
     /**
@@ -49,6 +57,10 @@ public class FlowEngine {
     public boolean isStackEmpty() {
         return this.states.stream().allMatch(EngineState::isStackEmpty);
     }
+    
+    public boolean isImpossibleState() {
+        return this.states.isEmpty();
+    }
 
     public ValueSet peek() {
         return this.states.stream().map(EngineState::peek).reduce(ValueSet::merge).orElse(null);
@@ -56,6 +68,10 @@ public class FlowEngine {
 
     public List<ValueSet> peekAll() {
         return this.states.stream().map(EngineState::peek).toList();
+    }
+    
+    public Set<EngineState> getCurrentStates() {
+        return this.states;
     }
 
     public void createLocal(String name, CtTypeReference<?> type) {
@@ -121,6 +137,21 @@ public class FlowEngine {
         this.log("subtract");
     }
 
+    public void multiply() {
+        for (EngineState state : this.states) {
+            state.multiply();
+        }
+        this.log("multiply");
+    }
+
+    public void divide() {
+        for (EngineState state : this.states) {
+            state.divide();
+        }
+        this.log("divide");
+    }
+
+
     public void not() {
         for (EngineState state : this.states) {
             state.not();
@@ -129,49 +160,31 @@ public class FlowEngine {
     }
 
     public void and() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.and());
-        }
+        this.collectStates(EngineState::and);
         this.log("and");
     }
 
     public void or() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.or());
-        }
+        this.collectStates(EngineState::or);
         this.log("or");
     }
-
-    public void lessThan() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.lessThan());
-        }
-        this.log("lessThan");
+    
+    public void compareOp(Relation relation) {
+        this.collectStates(s -> s.compareOp(relation));
+        this.log(relation.toString());
     }
-
-    public void lessThanEquals() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.lessThanEquals());
-        }
-        this.log("lessThanEquals");
-    }
-
-    public void greaterThan() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.greaterThan());
-        }
-        this.log("greaterThan");
-    }
-
-    public void greaterThanEquals() {
-        for (EngineState state : this.states) {
-            this.states.addAll(state.greaterThanEquals());
-        }
-        this.log("greaterThanEquals");
+    
+    public void call(MethodAnalysis method) {
+        this.collectStates(s -> s.call(method));
+        this.log("call " + method.getName());
     }
     
     private void log(String instruction) {
         System.out.println(instruction + ", " + this);
+    }
+    
+    private void collectStates(Function<EngineState, List<EngineState>> fn) {
+        this.states = this.states.stream().flatMap(s -> fn.apply(s).stream()).collect(Collectors.toSet());
     }
 
     @Override

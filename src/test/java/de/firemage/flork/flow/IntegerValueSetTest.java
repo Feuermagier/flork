@@ -5,9 +5,9 @@ import org.junit.jupiter.api.Test;
 class IntegerValueSetTest {
     @Test
     void testAddValue() {
-        var a = IntegerValueSet.ofRange(1, 5);
-        var b = IntegerValueSet.ofRange(7, 7);
-        var c = IntegerValueSet.ofRange(1, 7);
+        var a = IntValueSet.ofIntRange(1, 5);
+        var b = IntValueSet.ofIntRange(7, 7);
+        var c = IntValueSet.ofIntRange(1, 7);
         System.out.println(a.merge(b).splitAtBelow(7));
     }
 }

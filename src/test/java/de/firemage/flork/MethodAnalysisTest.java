@@ -1,6 +1,8 @@
 package de.firemage.flork;
 
+import de.firemage.flork.flow.BooleanValueSet;
 import de.firemage.flork.flow.FlowAnalysis;
+import de.firemage.flork.flow.IntValueSet;
 import org.junit.jupiter.api.Test;
 import spoon.Launcher;
 import spoon.compiler.ModelBuildingException;
@@ -21,11 +23,13 @@ class MethodAnalysisTest {
 
         CtModel model = launcher.buildModel();
 
-        var analysis = new FlowAnalysis(model);
+        var analysis = new FlowAnalysis();
         var method = (CtMethod<?>) model.getElements(CtMethod.class::isInstance).get(0);
         System.out.println(method);
-        var engine = analysis.analyzeMethod(method);
+        var result = analysis.analyzeMethod(method);
 
-        System.out.println(engine);
+        System.out.println(result.getReturnStates().size() + " return states: " + result.getReturnStates());
+
+        System.out.println(IntValueSet.ofIntSingle(0).merge(IntValueSet.ofIntSingle(1)));
     }
 }

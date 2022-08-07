@@ -1,28 +1,45 @@
 package de.firemage.flork.flow.engine;
 
 import de.firemage.flork.flow.BooleanValueSet;
-import de.firemage.flork.flow.IntegerValueSet;
-import de.firemage.flork.flow.MathUtil;
+import de.firemage.flork.flow.IntValueSet;
+import de.firemage.flork.flow.MethodAnalysis;
+import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.ValueSet;
 import spoon.reflect.reference.CtTypeReference;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class EngineState {
-    private final Map<String, ValueSet> localsState;
+    // The current state of all locals
+    private final Map<String, VarState> localsState;
+
+    // The current state of the stack
     private final ValueStack stack;
 
-    public EngineState(Map<String, ValueSet> localsState) {
+    // The value of parameters before they are overwritten; to be used in MethodExitState
+    private final Map<String, VarState> savedInitialParameterStates;
+
+    // List of locals that are also parameters
+    private final Set<String> parameters;
+
+    public EngineState(Map<String, VarState> localsState, Set<String> parameters) {
         this.localsState = localsState;
+        this.parameters = parameters;
+        this.savedInitialParameterStates = new HashMap<>(parameters.size());
         this.stack = new ValueStack();
     }
 
     public EngineState(EngineState other) {
         this.localsState = new HashMap<>(other.localsState);
+        this.parameters = other.parameters;
+        this.savedInitialParameterStates = new HashMap<>(other.savedInitialParameterStates);
         this.stack = new ValueStack(other.stack);
     }
 
@@ -30,8 +47,27 @@ public class EngineState {
         return new EngineState(this);
     }
 
+    public Map<String, VarState> getParamStates() {
+        // Remove relations with non-parameter locals
+        Map<String, VarState> paramStates = new HashMap<>(this.savedInitialParameterStates.size());
+        for (String param : this.parameters) {
+            VarState value;
+            if (this.savedInitialParameterStates.containsKey(param)) {
+                value = this.savedInitialParameterStates.get(param);
+            } else {
+                value = this.localsState.get(param);
+            }
+            paramStates.put(param, new VarState(value.value(), value
+                .relations()
+                .stream()
+                .filter(r -> this.parameters.contains(r.rhs()))
+                .collect(Collectors.toSet())));
+        }
+        return paramStates;
+    }
+
     public void createLocal(String name, CtTypeReference<?> type) {
-        this.localsState.put(name, ValueSet.topForType(type));
+        this.localsState.put(name, new VarState(ValueSet.topForType(type), Set.of()));
     }
 
     public void pushBooleanLiteral(boolean value) {
@@ -39,7 +75,7 @@ public class EngineState {
     }
 
     public void pushIntLiteral(int value) {
-        this.stack.push(new ConcreteStackValue(IntegerValueSet.ofRange(value, value)));
+        this.stack.push(new ConcreteStackValue(IntValueSet.ofIntRange(value, value)));
     }
 
     public void pushLocal(String name) {
@@ -47,13 +83,19 @@ public class EngineState {
     }
 
     public void storeLocal(String name) {
-        this.localsState.put(name, getValueOf(this.stack.peek()));
+        if (this.parameters.contains(name) && !this.savedInitialParameterStates.containsKey(name)) {
+            this.savedInitialParameterStates.put(name, this.localsState.get(name));
+        }
+        this.localsState.put(name, new VarState(getValueOf(this.stack.peek()), Set.of()));
+        if (this.stack.peek() instanceof LocalRefStackValue ref) {
+            this.addRelationAndExtendTransitive(name, new VarRelation(ref.local(), Relation.EQUAL));
+        }
     }
 
     public void pop() {
         this.stack.pop();
     }
-    
+
     public ValueSet peek() {
         return getValueOf(this.stack.getFirst());
     }
@@ -61,23 +103,67 @@ public class EngineState {
     public boolean isStackEmpty() {
         return this.stack.isEmpty();
     }
-    
+
     public void negate() {
         StackValue tos = this.stack.pop();
-        IntegerValueSet tosValue = (IntegerValueSet) getValueOf(tos);
+        IntValueSet tosValue = (IntValueSet) getValueOf(tos);
         this.stack.push(new ConcreteStackValue(tosValue.negate()));
     }
-    
+
     public void add() {
-        IntegerValueSet rhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        IntegerValueSet lhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        this.stack.push(new ConcreteStackValue(lhs.add(rhs)));
+        StackValue rhs = this.stack.pop();
+        StackValue lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
+        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        if (rhsValue.isSingle(0)) {
+            this.stack.push(lhs);
+        } else if (lhsValue.isSingle(0)) {
+            this.stack.push(rhs);
+        } else {
+            this.stack.push(new ConcreteStackValue(lhsValue.add(rhsValue)));
+        }
     }
 
     public void subtract() {
-        IntegerValueSet rhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        IntegerValueSet lhs = (IntegerValueSet) getValueOf(this.stack.pop());
-        this.stack.push(new ConcreteStackValue(lhs.subtract(rhs)));
+        StackValue rhs = this.stack.pop();
+        StackValue lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
+        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        if (rhsValue.isSingle(0)) {
+            this.stack.push(lhs);
+        } else if (lhsValue.isSingle(0)) {
+            this.stack.push(rhs);
+        } else {
+            this.stack.push(new ConcreteStackValue(lhsValue.subtract(rhsValue)));
+        }
+    }
+
+    public void multiply() {
+        StackValue rhs = this.stack.pop();
+        StackValue lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
+        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        if (rhsValue.isSingle(1)) {
+            this.stack.push(lhs);
+        } else if (lhsValue.isSingle(1)) {
+            this.stack.push(rhs);
+        } else {
+            this.stack.push(new ConcreteStackValue(lhsValue.multiply(rhsValue)));
+        }
+    }
+
+    public void divide() {
+        StackValue rhs = this.stack.pop();
+        StackValue lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
+        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        if (rhsValue.isSingle(1)) {
+            this.stack.push(lhs);
+        } else if (lhsValue.isSingle(1)) {
+            this.stack.push(rhs);
+        } else {
+            this.stack.push(new ConcreteStackValue(lhsValue.divide(rhsValue)));
+        }
     }
 
     public void not() {
@@ -89,6 +175,7 @@ public class EngineState {
     // This is not short circuit!
     public List<EngineState> and() {
         List<EngineState> additionalPaths = new ArrayList<>();
+        additionalPaths.add(this);
 
         StackValue rhs = this.stack.pop();
         StackValue lhs = this.stack.pop();
@@ -100,7 +187,6 @@ public class EngineState {
         } else if (lhsValue.isBottom()) {
             this.stack.push(new ConcreteStackValue(BooleanValueSet.bottom()));
         } else {
-
             if (lhsValue.isTop()) {
                 // Create a second path for lhs == false
                 EngineState secondPath = this.fork();
@@ -131,6 +217,7 @@ public class EngineState {
     // This is not short circuit!
     public List<EngineState> or() {
         List<EngineState> additionalPaths = new ArrayList<>();
+        additionalPaths.add(this);
 
         StackValue rhs = this.stack.pop();
         StackValue lhs = this.stack.pop();
@@ -170,55 +257,109 @@ public class EngineState {
         return additionalPaths;
     }
 
-    public List<EngineState> lessThan() {
-        return this.compareOp(false, false);
-    }
-
-    public List<EngineState> lessThanEquals() {
-        return this.compareOp(true, false);
-    }
-
-    public List<EngineState> greaterThan() {
-        return this.compareOp(false, true);
-    }
-
-    public List<EngineState> greaterThanEquals() {
-        return this.compareOp(true, true);
-    }
-    
-    public List<EngineState> compareOp(boolean equalsOk, boolean greaterThan) {
-        List<EngineState> additionalPaths = new ArrayList<>();
-
+    public List<EngineState> compareOp(Relation relation) {
         StackValue rhs = this.stack.pop();
         StackValue lhs = this.stack.pop();
-        
-        if (greaterThan) {
-            var temp = rhs;
-            rhs = lhs;
-            lhs = temp;
+
+        // Query known relations first
+        if (lhs instanceof LocalRefStackValue lhsRef && rhs instanceof LocalRefStackValue rhsRef) {
+            VarState lhsState = this.localsState.get(lhsRef.local());
+            switch (checkRelation(lhsRef.local(), lhsState, rhsRef.local(), relation)) {
+                case ALWAYS -> {
+                    this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                    return List.of(this);
+                }
+                case NEVER -> {
+                    this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                    return List.of(this);
+                }
+                case SOMETIMES -> {
+                }
+            }
         }
 
-        IntegerValueSet lhsValue = (IntegerValueSet) getValueOf(lhs);
-        IntegerValueSet rhsValue = (IntegerValueSet) getValueOf(rhs);
-        
-        if (lhsValue.min() > rhsValue.max() || (!equalsOk && lhsValue.min() == rhsValue.max())) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
-        } else if (lhsValue.max() < rhsValue.min() || (equalsOk && lhsValue.max() == rhsValue.min())) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
-        } else {
-            // Second path: lhs >(=) b
-            EngineState secondPath = this.fork();
-            secondPath.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
-            secondPath.assertStackValue(lhs, lhsValue.splitAtAbove(equalsOk ? MathUtil.incSaturating(rhsValue.min()) : rhsValue.min()));
-            secondPath.assertStackValue(rhs, rhsValue.splitAtBelow(equalsOk ? MathUtil.decSaturating(lhsValue.max()) : lhsValue.max()));
-            additionalPaths.add(secondPath);
+        ValueSet lhsValue = getValueOf(lhs);
+        ValueSet rhsValue = getValueOf(rhs);
 
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
-            this.assertStackValue(lhs, lhsValue.splitAtBelow(equalsOk ? rhsValue.max() : MathUtil.decSaturating(rhsValue.max())));
-            this.assertStackValue(rhs, rhsValue.splitAtAbove(equalsOk ? lhsValue.min() : MathUtil.incSaturating(lhsValue.min())));
+        return switch (lhsValue.fulfillsRelation(rhsValue, relation)) {
+            case ALWAYS -> {
+                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                this.tryAssertRelation(lhs, rhs, relation);
+                yield List.of(this);
+            }
+            case NEVER -> {
+                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                this.tryAssertRelation(lhs, rhs, relation.negate());
+                yield List.of(this);
+            }
+            case SOMETIMES -> {
+                // "this" is the true path, other is the false path
+                EngineState notFulfilledState = this.fork();
+                notFulfilledState.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                notFulfilledState.assertStackValue(lhs,
+                    lhsValue.removeNotFulfillingValues(rhsValue, relation.negate()));
+                notFulfilledState.assertStackValue(rhs,
+                    rhsValue.removeNotFulfillingValues(lhsValue, relation.negate().invert()));
+                notFulfilledState.tryAssertRelation(lhs, rhs, relation.negate());
+
+                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                this.assertStackValue(lhs, lhsValue.removeNotFulfillingValues(rhsValue, relation));
+                this.assertStackValue(rhs, rhsValue.removeNotFulfillingValues(lhsValue, relation.invert()));
+                this.tryAssertRelation(lhs, rhs, relation);
+                yield List.of(this, notFulfilledState);
+            }
+        };
+    }
+
+    public List<EngineState> call(MethodAnalysis method) {
+        List<EngineState> result = new ArrayList<>();
+
+        exit:
+        for (MethodExitState returnState : method.getReturnStates()) {
+            EngineState state = new EngineState(this);
+            Map<String, StackValue> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
+
+            // Extract the parameters
+            for (String param : method.getOrderedParameterNames()) {
+                StackValue tos = state.stack.pop();
+                paramToArgument.put(param, tos);
+            }
+
+            // Check all parameters and add relations
+            for (String param : method.getOrderedParameterNames()) {
+                VarState paramState = returnState.parameters().get(param);
+                StackValue argument = paramToArgument.get(param);
+                ValueSet argumentValue = getValueOf(argument).intersect(paramState.value());
+                if (argumentValue.isEmpty()) {
+                    continue exit;
+                }
+                for (VarRelation relation : paramState.relations()) {
+                    argumentValue =
+                        argumentValue.removeNotFulfillingValues(getValueOf(paramToArgument.get(relation.rhs())),
+                            relation.relation());
+                    if (argumentValue.isEmpty()) {
+                        continue exit;
+                    }
+                    if (argument instanceof LocalRefStackValue lhs &&
+                        paramToArgument.get(relation.rhs()) instanceof LocalRefStackValue rhs) {
+                        switch (state.checkRelation(lhs.local(), this.localsState.get(lhs.local()), rhs.local(),
+                            relation.relation())) {
+                            case NEVER -> {
+                                continue exit;
+                            }
+                            default -> state.addRelationAndExtendTransitive(lhs.local(),
+                                new VarRelation(rhs.local(), relation.relation()));
+                        }
+
+                    }
+                }
+                state.assertStackValue(argument, argumentValue);
+            }
+            state.stack.push(new ConcreteStackValue(returnState.value()));
+
+            result.add(state);
         }
-        
-        return additionalPaths;
+        return result;
     }
 
     public boolean assertTos(ValueSet expectedTos) {
@@ -234,7 +375,7 @@ public class EngineState {
         if (value instanceof ConcreteStackValue concrete) {
             return concrete.value();
         } else {
-            return this.localsState.get(((LocalRefStackValue) value).local());
+            return this.localsState.get(((LocalRefStackValue) value).local()).value();
         }
     }
 
@@ -242,11 +383,73 @@ public class EngineState {
         if (!this.getValueOf(stackValue).isSupersetOf(value)) {
             throw new IllegalStateException(this.getValueOf(stackValue) + " is not a superset of " + value);
         } else if (stackValue instanceof LocalRefStackValue ref) {
-            this.localsState.put(ref.local(), value);
+            this.localsState.put(ref.local(), new VarState(value, this.localsState.get(ref.local()).relations()));
             return stackValue;
         } else {
             return new ConcreteStackValue(value);
         }
+    }
+
+    private void tryAssertRelation(StackValue lhs, StackValue rhs, Relation relation) {
+        if (lhs instanceof LocalRefStackValue lhsRef && rhs instanceof LocalRefStackValue rhsRef) {
+            this.addRelationAndExtendTransitive(lhsRef.local(), new VarRelation(rhsRef.local(), relation));
+        }
+    }
+
+    private void addRelationAndExtendTransitive(String lhs, VarRelation relation) {
+        if (this.localsState.get(lhs).relations().contains(relation) || relation.rhs().equals(lhs)) {
+            return;
+        }
+
+        VarState local =
+            this.localsState.compute(lhs, (k, v) -> addRelationAndTrimValue(v, relation.rhs(), relation.relation()));
+        //this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
+
+        if (relation.relation() == Relation.NOT_EQUAL) {
+            // != is not transitive, but symmetric
+            this.localsState.compute(relation.rhs(), (k, v) -> addRelationAndTrimValue(v, lhs, Relation.NOT_EQUAL));
+            return;
+        }
+
+        local.relations().stream()
+            .filter(r -> r.relation() == relation.relation().invert())
+            .forEach(r -> addRelationAndExtendTransitive(r.rhs(), relation));
+        local.relations().stream()
+            .filter(r -> r.relation() == relation.relation())
+            .forEach(r -> addRelationAndExtendTransitive(r.rhs(), new VarRelation(lhs, relation.relation().invert())));
+    }
+
+    private VarState addRelationAndTrimValue(VarState state, String rhs, Relation relation) {
+        Set<VarRelation> relations = new HashSet<>(state.relations());
+        relations.add(new VarRelation(rhs, relation));
+        ValueSet value = state.value().removeNotFulfillingValues(this.localsState.get(rhs).value(), relation);
+        return new VarState(value, relations);
+    }
+
+    private RelationStatus checkRelation(String lhs, VarState lhsState, String rhs, Relation relation) {
+        if (lhs.equals(rhs)) {
+            if (Relation.EQUAL.implies(relation)) {
+                return RelationStatus.ALWAYS;
+            } else if (relation.implies(Relation.NOT_EQUAL)) {
+                return RelationStatus.NEVER;
+            }
+        }
+        if (hasRelation(lhsState, rhs, relation)) {
+            return RelationStatus.ALWAYS;
+        } else if (hasRelation(lhsState, rhs, relation.negate())) {
+            return RelationStatus.NEVER;
+        } else {
+            return RelationStatus.SOMETIMES;
+        }
+    }
+
+    private boolean hasRelation(VarState lhsState, String rhs, Relation relation) {
+        for (VarRelation r : lhsState.relations()) {
+            if (r.relation().implies(relation) && r.rhs().equals(rhs)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
