@@ -6,7 +6,9 @@ import de.firemage.flork.flow.TypeUtil;
 import de.firemage.flork.flow.engine.Relation;
 import spoon.reflect.reference.CtTypeReference;
 
-public final class ObjectValueSet implements ValueSet {
+import java.util.Objects;
+
+public final class ObjectValueSet extends ValueSet {
     private final FlowContext context;
     private final Nullness nullness;
     private final CtTypeReference<?> supertype;
@@ -17,9 +19,6 @@ public final class ObjectValueSet implements ValueSet {
     }
 
     public ObjectValueSet(Nullness nullness, CtTypeReference<?> supertype, boolean exact, FlowContext context) {
-        if (nullness == Nullness.BOTTOM) {
-            throw new IllegalStateException("ObjectValueSets with nullness == BOTTOM must be an EmptyObjectValueSet");
-        }
         this.nullness = nullness;
         this.supertype = supertype;
         this.exact = exact;
@@ -107,6 +106,19 @@ public final class ObjectValueSet implements ValueSet {
         } else {
             throw new IllegalArgumentException("Cannot compare objects with " + relation);
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        ObjectValueSet that = (ObjectValueSet) o;
+        return exact == that.exact && nullness == that.nullness && Objects.equals(supertype, that.supertype);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(nullness, supertype, exact);
     }
 
     @Override

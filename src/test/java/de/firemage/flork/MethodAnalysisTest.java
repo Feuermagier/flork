@@ -15,7 +15,7 @@ class MethodAnalysisTest {
     public void testFlow() throws ModelBuildingException {
         Launcher launcher = new Launcher();
         launcher.addInputResource(new FileSystemFile(this.getClass().getResource("Test.java").getFile()));
-        launcher.addInputResource(new FileSystemFolder("C:\\Users\\flose\\Downloads\\jdk-minified"));
+        launcher.addInputResource(new FileSystemFolder("jdk-minified"));
         launcher.getEnvironment().setShouldCompile(false);
         //launcher.getEnvironment().setSourceClasspath(new String[] {this.getClass().getResource("./").getFile()});
         launcher.getEnvironment().setNoClasspath(true);

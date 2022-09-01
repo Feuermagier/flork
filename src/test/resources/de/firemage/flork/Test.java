@@ -4,8 +4,8 @@ public class Test {
     }
     
     public static Test bar(int x, Test test) {
-        if (x >= 0) {
-            return new Test();
+        if (x * 2 >= 0) {
+            return test;
         } else {
             return null;
         }

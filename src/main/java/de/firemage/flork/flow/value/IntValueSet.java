@@ -16,7 +16,7 @@ import java.util.stream.Collectors;
  * Therefore, you cannot use this class for longs.
  * This class is immutable, including all its fields!
  */
-public final class IntValueSet implements ValueSet {
+public final class IntValueSet extends ValueSet {
     private final List<IntInterval> intervals;
     private final int bits;
     private final long typeMin;

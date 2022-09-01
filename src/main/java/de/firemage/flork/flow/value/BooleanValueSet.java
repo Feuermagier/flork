@@ -3,13 +3,15 @@ package de.firemage.flork.flow.value;
 import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.engine.Relation;
 
-public final class BooleanValueSet implements ValueSet {
-    private final BooleanValueSet.State state;
+import java.util.Objects;
 
-    public BooleanValueSet(State state) {
+public final class BooleanValueSet extends ValueSet {
+    private final BooleanValueSet.State state;
+    
+    public BooleanValueSet(BooleanValueSet.State state) {
         this.state = state;
     }
-
+    
     public static BooleanValueSet bottom() {
         return new BooleanValueSet(State.BOTTOM);
     }
@@ -120,6 +122,19 @@ public final class BooleanValueSet implements ValueSet {
             case NOT_EQUAL -> throw new UnsupportedOperationException();
             default -> throw new IllegalStateException("Cannot compare booleans with " + relation);
         };
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        BooleanValueSet that = (BooleanValueSet) o;
+        return state == that.state;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(state);
     }
 
     public enum State {

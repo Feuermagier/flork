@@ -5,9 +5,9 @@ import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.engine.Relation;
 import spoon.reflect.reference.CtTypeReference;
 
-public sealed interface ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
+public sealed abstract class ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
 
-    static ValueSet topForType(CtTypeReference<?> type, FlowContext context) {
+    public static ValueSet topForType(CtTypeReference<?> type, FlowContext context) {
         if (!type.isPrimitive()) {
             return new ObjectValueSet(Nullness.UNKNOWN, type, false, context);
         } else {
@@ -19,15 +19,19 @@ public sealed interface ValueSet permits BooleanValueSet, IntValueSet, ObjectVal
         }
     }
 
-    ValueSet merge(ValueSet other);
+    public abstract ValueSet merge(ValueSet other);
 
-    ValueSet intersect(ValueSet other);
+    public abstract ValueSet intersect(ValueSet other);
 
-    boolean isSupersetOf(ValueSet other);
+    public abstract boolean isSupersetOf(ValueSet other);
 
-    boolean isEmpty();
+    public abstract boolean isEmpty();
 
-    BooleanStatus fulfillsRelation(ValueSet other, Relation relation);
+    public abstract BooleanStatus fulfillsRelation(ValueSet other, Relation relation);
 
-    ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
+    public abstract ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
+    
+    public abstract boolean equals(Object o);
+    
+    public abstract int hashCode();
 }

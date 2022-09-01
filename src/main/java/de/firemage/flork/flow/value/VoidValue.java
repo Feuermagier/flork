@@ -7,14 +7,14 @@ import de.firemage.flork.flow.engine.Relation;
  * Placeholder for expressions of type void (e.g. calls to void methods, constructor calls) so they
  * can be treated in the same way as other expressions
  */
-public final class VoidValue implements ValueSet {
+public final class VoidValue extends ValueSet {
     private static final VoidValue INSTANCE = new VoidValue();
+
+    private VoidValue() {
+    }
 
     public static VoidValue getInstance() {
         return INSTANCE;
-    }
-
-    private VoidValue() {
     }
 
     @Override
@@ -62,5 +62,15 @@ public final class VoidValue implements ValueSet {
     @Override
     public ValueSet removeNotFulfillingValues(ValueSet other, Relation relation) {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o == INSTANCE;
+    }
+
+    @Override
+    public int hashCode() {
+        return System.identityHashCode(this);
     }
 }
