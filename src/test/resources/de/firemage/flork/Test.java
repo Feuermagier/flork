@@ -1,13 +1,17 @@
 public class Test {
-    public static int foo(int a, int b) {
-        return b + 1;
+    public Test foo(int x) {
+        return bar(x, new Test());
     }
     
-    public static int bar(int x, int y) {
-        if (x == y + 1) {
-            return 1;
+    public static Test bar(int x, Test test) {
+        if (x >= 0) {
+            return new Test();
         } else {
-            return -1;
+            return null;
         }
+    }
+
+    public void baz() {
+
     }
 }

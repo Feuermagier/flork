@@ -1,9 +1,14 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.value;
 
+import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.engine.Relation;
-import de.firemage.flork.flow.engine.RelationStatus;
 
-public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
+public final class BooleanValueSet implements ValueSet {
+    private final BooleanValueSet.State state;
+
+    public BooleanValueSet(State state) {
+        this.state = state;
+    }
 
     public static BooleanValueSet bottom() {
         return new BooleanValueSet(State.BOTTOM);
@@ -43,24 +48,6 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
             return this;
         } else {
             return BooleanValueSet.bottom();
-        }
-    }
-
-    @Override
-    public ValueSet symmetricDifference(ValueSet o) {
-        BooleanValueSet other = (BooleanValueSet) o;
-        if (this.equals(other)) {
-            return BooleanValueSet.bottom();
-        } else if (this.isBottom()) {
-            return other;
-        } else if (other.isBottom()) {
-            return this;
-        } else if (this.isTop()) {
-            return BooleanValueSet.of(!other.isTrue());
-        } else if (other.isTop()) {
-            return BooleanValueSet.of(!this.isTrue());
-        } else {
-            return BooleanValueSet.top();
         }
     }
 
@@ -111,17 +98,17 @@ public record BooleanValueSet(BooleanValueSet.State state) implements ValueSet {
     }
 
     @Override
-    public RelationStatus fulfillsRelation(ValueSet o, Relation relation) {
+    public BooleanStatus fulfillsRelation(ValueSet o, Relation relation) {
         BooleanValueSet other = (BooleanValueSet) o;
         if (this.isBottom() || other.isBottom()) {
             throw new IllegalStateException("Cannot compare bottom values");
         }
 
         return switch (relation) {
-            case EQUAL -> (this.isTop() || other.isTop()) ? RelationStatus.SOMETIMES :
-                (this.equals(other) ? RelationStatus.ALWAYS : RelationStatus.NEVER);
-            case NOT_EQUAL -> (this.isTop() || other.isTop()) ? RelationStatus.SOMETIMES :
-                (this.equals(other) ? RelationStatus.NEVER : RelationStatus.ALWAYS);
+            case EQUAL -> (this.isTop() || other.isTop()) ? BooleanStatus.SOMETIMES :
+                (this.equals(other) ? BooleanStatus.ALWAYS : BooleanStatus.NEVER);
+            case NOT_EQUAL -> (this.isTop() || other.isTop()) ? BooleanStatus.SOMETIMES :
+                (this.equals(other) ? BooleanStatus.NEVER : BooleanStatus.ALWAYS);
             case LESS_THAN, LESS_THAN_EQUAL, GREATER_THAN, GREATER_THAN_EQUAL -> throw new UnsupportedOperationException();
         };
     }

@@ -1,7 +1,8 @@
 package de.firemage.flork.flow.engine;
 
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MethodAnalysis;
-import de.firemage.flork.flow.ValueSet;
+import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.reference.CtTypeReference;
 
@@ -16,15 +17,15 @@ import java.util.stream.Collectors;
 public class FlowEngine {
     private Set<EngineState> states;
 
-    public FlowEngine(List<CtParameter<?>> parameters) {
+    public FlowEngine(List<CtParameter<?>> parameters, FlowContext context) {
         Map<String, VarState> initialValues = new HashMap<>();
         Set<String> parameterNames = new HashSet<>();
         for (CtParameter<?> parameter : parameters) {
-            initialValues.put(parameter.getSimpleName(), new VarState(ValueSet.topForType(parameter.getType()), Set.of()));
+            initialValues.put(parameter.getSimpleName(), new VarState(ValueSet.topForType(parameter.getType(), context), Set.of()));
             parameterNames.add(parameter.getSimpleName());
         }
         this.states = new HashSet<>();
-        this.states.add(new EngineState(initialValues, parameterNames));
+        this.states.add(new EngineState(initialValues, parameterNames, context));
     }
 
     private FlowEngine(Set<EngineState> states) {
@@ -81,18 +82,11 @@ public class FlowEngine {
         this.log("createLocal");
     }
 
-    public void pushBooleanLiteral(boolean value) {
+    public void pushValue(ValueSet value) {
         for (EngineState state : this.states) {
-            state.pushBooleanLiteral(value);
+            state.pushValue(value);
         }
-        this.log("pushBooleanLiteral");
-    }
-
-    public void pushIntLiteral(int value) {
-        for (EngineState state : this.states) {
-            state.pushIntLiteral(value);
-        }
-        this.log("pushIntLiteral");
+        this.log("push " + value);
     }
 
     public void pushLocal(String name) {

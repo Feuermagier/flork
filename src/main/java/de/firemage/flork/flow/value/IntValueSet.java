@@ -1,7 +1,8 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.value;
 
+import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.MathUtil;
 import de.firemage.flork.flow.engine.Relation;
-import de.firemage.flork.flow.engine.RelationStatus;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,11 +54,11 @@ public final class IntValueSet implements ValueSet {
         long max = newInterval.max;
         for (int i = 0; i < intervals.size(); i++) {
             IntInterval interval = intervals.get(i);
-            if (interval.max < min) {
+            if (min != Long.MIN_VALUE && interval.max < min - 1) {
                 // Old:      |--|
                 // New: |--|
                 continue;
-            } else if (interval.min > max) {
+            } else if (max != Long.MAX_VALUE && interval.min > max + 1) {
                 intervals.add(i, new IntInterval(min, max));
                 return;
             } else if (interval.min <= min && interval.max >= max) {
@@ -121,7 +122,6 @@ public final class IntValueSet implements ValueSet {
         return new IntValueSet(this.bits, result);
     }
 
-    @Override
     public IntValueSet symmetricDifference(ValueSet o) {
         IntValueSet other = (IntValueSet) o;
         if (this.isTop() && other.isTop()) {
@@ -192,19 +192,19 @@ public final class IntValueSet implements ValueSet {
     }
 
     @Override
-    public RelationStatus fulfillsRelation(ValueSet o, Relation relation) {
+    public BooleanStatus fulfillsRelation(ValueSet o, Relation relation) {
         IntValueSet other = (IntValueSet) o;
         return switch (relation) {
-            case EQUAL -> this.hasCommonValue(other) ? RelationStatus.SOMETIMES : RelationStatus.NEVER;
-            case NOT_EQUAL -> this.hasCommonValue(other) ? RelationStatus.SOMETIMES : RelationStatus.ALWAYS;
-            case LESS_THAN -> this.max() < other.min() ? RelationStatus.ALWAYS :
-                (this.min() < other.max() ? RelationStatus.SOMETIMES : RelationStatus.NEVER);
-            case LESS_THAN_EQUAL -> this.max() <= other.min() ? RelationStatus.ALWAYS :
-                (this.min() <= other.max() ? RelationStatus.SOMETIMES : RelationStatus.NEVER);
-            case GREATER_THAN -> this.min() > other.max() ? RelationStatus.ALWAYS :
-                (this.max() > other.min() ? RelationStatus.SOMETIMES : RelationStatus.NEVER);
-            case GREATER_THAN_EQUAL -> this.min() >= other.max() ? RelationStatus.ALWAYS :
-                (this.max() >= other.min() ? RelationStatus.SOMETIMES : RelationStatus.NEVER);
+            case EQUAL -> this.hasCommonValue(other) ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER;
+            case NOT_EQUAL -> this.hasCommonValue(other) ? BooleanStatus.SOMETIMES : BooleanStatus.ALWAYS;
+            case LESS_THAN -> this.max() < other.min() ? BooleanStatus.ALWAYS :
+                (this.min() < other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+            case LESS_THAN_EQUAL -> this.max() <= other.min() ? BooleanStatus.ALWAYS :
+                (this.min() <= other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+            case GREATER_THAN -> this.min() > other.max() ? BooleanStatus.ALWAYS :
+                (this.max() > other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+            case GREATER_THAN_EQUAL -> this.min() >= other.max() ? BooleanStatus.ALWAYS :
+                (this.max() >= other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
         };
     }
 

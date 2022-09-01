@@ -1,10 +1,12 @@
 package de.firemage.flork.flow.engine;
 
-import de.firemage.flork.flow.BooleanValueSet;
-import de.firemage.flork.flow.IntValueSet;
+import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.value.BooleanValueSet;
+import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.MethodAnalysis;
 import de.firemage.flork.flow.MethodExitState;
-import de.firemage.flork.flow.ValueSet;
+import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.reference.CtTypeReference;
 
 import java.util.ArrayList;
@@ -17,6 +19,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class EngineState {
+    private final FlowContext context;
+
     // The current state of all locals
     private final Map<String, VarState> localsState;
 
@@ -29,7 +33,8 @@ public class EngineState {
     // List of locals that are also parameters
     private final Set<String> parameters;
 
-    public EngineState(Map<String, VarState> localsState, Set<String> parameters) {
+    public EngineState(Map<String, VarState> localsState, Set<String> parameters, FlowContext context) {
+        this.context = context;
         this.localsState = localsState;
         this.parameters = parameters;
         this.savedInitialParameterStates = new HashMap<>(parameters.size());
@@ -37,6 +42,7 @@ public class EngineState {
     }
 
     public EngineState(EngineState other) {
+        this.context = other.context;
         this.localsState = new HashMap<>(other.localsState);
         this.parameters = other.parameters;
         this.savedInitialParameterStates = new HashMap<>(other.savedInitialParameterStates);
@@ -67,15 +73,11 @@ public class EngineState {
     }
 
     public void createLocal(String name, CtTypeReference<?> type) {
-        this.localsState.put(name, new VarState(ValueSet.topForType(type), Set.of()));
+        this.localsState.put(name, new VarState(ValueSet.topForType(type, this.context), Set.of()));
     }
 
-    public void pushBooleanLiteral(boolean value) {
-        this.stack.push(new ConcreteStackValue(BooleanValueSet.of(value)));
-    }
-
-    public void pushIntLiteral(int value) {
-        this.stack.push(new ConcreteStackValue(IntValueSet.ofIntRange(value, value)));
+    public void pushValue(ValueSet value) {
+        this.stack.push(new ConcreteStackValue(value));
     }
 
     public void pushLocal(String name) {
@@ -312,6 +314,10 @@ public class EngineState {
     }
 
     public List<EngineState> call(MethodAnalysis method) {
+        if (method.getReturnStates() == null) {
+            return List.of(this);
+        }
+
         List<EngineState> result = new ArrayList<>();
 
         exit:
@@ -426,20 +432,20 @@ public class EngineState {
         return new VarState(value, relations);
     }
 
-    private RelationStatus checkRelation(String lhs, VarState lhsState, String rhs, Relation relation) {
+    private BooleanStatus checkRelation(String lhs, VarState lhsState, String rhs, Relation relation) {
         if (lhs.equals(rhs)) {
             if (Relation.EQUAL.implies(relation)) {
-                return RelationStatus.ALWAYS;
+                return BooleanStatus.ALWAYS;
             } else if (relation.implies(Relation.NOT_EQUAL)) {
-                return RelationStatus.NEVER;
+                return BooleanStatus.NEVER;
             }
         }
         if (hasRelation(lhsState, rhs, relation)) {
-            return RelationStatus.ALWAYS;
+            return BooleanStatus.ALWAYS;
         } else if (hasRelation(lhsState, rhs, relation.negate())) {
-            return RelationStatus.NEVER;
+            return BooleanStatus.NEVER;
         } else {
-            return RelationStatus.SOMETIMES;
+            return BooleanStatus.SOMETIMES;
         }
     }
 

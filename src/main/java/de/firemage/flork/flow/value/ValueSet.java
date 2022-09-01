@@ -1,13 +1,15 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.value;
 
+import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.engine.Relation;
-import de.firemage.flork.flow.engine.RelationStatus;
 import spoon.reflect.reference.CtTypeReference;
 
-public sealed interface ValueSet permits BooleanValueSet, IntValueSet {
-    static ValueSet topForType(CtTypeReference<?> type) {
+public sealed interface ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
+
+    static ValueSet topForType(CtTypeReference<?> type, FlowContext context) {
         if (!type.isPrimitive()) {
-            throw new UnsupportedOperationException();
+            return new ObjectValueSet(Nullness.UNKNOWN, type, false, context);
         } else {
             return switch (type.getSimpleName()) {
                 case "boolean" -> BooleanValueSet.top();
@@ -18,16 +20,14 @@ public sealed interface ValueSet permits BooleanValueSet, IntValueSet {
     }
 
     ValueSet merge(ValueSet other);
-    
+
     ValueSet intersect(ValueSet other);
-    
-    ValueSet symmetricDifference(ValueSet other);
-    
+
     boolean isSupersetOf(ValueSet other);
-    
+
     boolean isEmpty();
-    
-    RelationStatus fulfillsRelation(ValueSet other, Relation relation);
-    
+
+    BooleanStatus fulfillsRelation(ValueSet other, Relation relation);
+
     ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
 }

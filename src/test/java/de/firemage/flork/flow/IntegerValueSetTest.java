@@ -1,5 +1,6 @@
 package de.firemage.flork.flow;
 
+import de.firemage.flork.flow.value.IntValueSet;
 import org.junit.jupiter.api.Test;
 
 class IntegerValueSetTest {
