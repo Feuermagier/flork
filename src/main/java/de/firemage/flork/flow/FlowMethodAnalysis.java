@@ -21,6 +21,7 @@ import spoon.reflect.code.CtStatement;
 import spoon.reflect.code.CtUnaryOperator;
 import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.code.CtVariableWrite;
+import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtConstructor;
 import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtParameter;
@@ -103,31 +104,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 engine.pop();
             }
         } else if (statement instanceof CtIf ifStmt) {
-            analyzeExpression(ifStmt.getCondition(), engine);
-            // Then branch
-            FlowEngine thenBranch = engine.fork(BooleanValueSet.of(true));
-            thenBranch.pop();
-            if (!thenBranch.isImpossibleState()) {
-                System.out.println("=== Then: " + thenBranch);
-                analyzeStatement(ifStmt.getThenStatement(), thenBranch);
-            } else {
-                System.out.println("=== Then: (Unreachable)");
-            }
-
-            // Else branch
-            engine.assertTos(BooleanValueSet.of(false));
-            engine.pop();
-            if (!engine.isImpossibleState()) {
-                System.out.println("=== Else: " + engine);
-                if (ifStmt.getElseStatement() != null) {
-                    analyzeStatement(ifStmt.getElseStatement(), engine);
-                }
-            } else {
-                System.out.println("=== Else: (Unreachable)");
-            }
-
-            engine.join(thenBranch);
-            System.out.println("== End if: " + engine);
+            analyzeIf(ifStmt, engine);
         } else if (statement instanceof CtBlock<?> block) {
             analyzeBlock(block, engine);
         } else if (statement instanceof CtReturn<?> ret) {
@@ -274,6 +251,44 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         engine.pop(); // Pop the void value pushed by the constructor
         engine.pushValue(new ObjectValueSet(Nullness.NON_NULL, call.getExecutable().getType(), true,
                 this.flowAnalysis.getContext())); // Push the new object
+    }
+    
+    private void analyzeIf(CtIf ifStmt, FlowEngine engine) {
+        analyzeExpression(ifStmt.getCondition(), engine);
+        // Then branch
+        FlowEngine thenBranch = engine.fork(BooleanValueSet.of(true));
+        thenBranch.pop();
+        if (!thenBranch.isImpossibleState()) {
+            System.out.println("=== Then: " + thenBranch);
+            analyzeStatement(ifStmt.getThenStatement(), thenBranch);
+        } else {
+            System.out.println("=== Then: (Unreachable)");
+        }
+
+        // Else branch
+        engine.assertTos(BooleanValueSet.of(false));
+        engine.pop();
+        if (!engine.isImpossibleState()) {
+            System.out.println("=== Else: " + engine);
+            if (ifStmt.getElseStatement() != null) {
+                analyzeStatement(ifStmt.getElseStatement(), engine);
+            }
+        } else {
+            System.out.println("=== Else: (Unreachable)");
+        }
+
+        engine.join(thenBranch);
+        System.out.println("== End if: " + engine);
+    }
+    
+    private void analyzeWhileLoop(CtWhile loop, FlowEngine engine) {
+        // Filter out states that skip the loop
+        analyzeExpression(loop.getLoopingExpression(), engine);
+        FlowEngine skipBranch = engine.fork(BooleanValueSet.of(false));
+        skipBranch.pop();
+        
+        // All other branches are now at the start of the loop body
+        
     }
 
     private List<MethodExitState> buildExitStates(FlowEngine engine) {

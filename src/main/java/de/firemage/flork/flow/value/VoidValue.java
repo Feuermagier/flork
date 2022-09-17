@@ -32,6 +32,11 @@ public final class VoidValue extends ValueSet {
     }
 
     @Override
+    public ValueSet tryMergeExact(ValueSet other) {
+        return this.merge(other);
+    }
+
+    @Override
     public ValueSet intersect(ValueSet other) {
         if (other instanceof VoidValue) {
             return this;

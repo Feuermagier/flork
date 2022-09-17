@@ -25,7 +25,7 @@ public final class BooleanValueSet extends ValueSet {
     }
 
     @Override
-    public ValueSet merge(ValueSet other) {
+    public BooleanValueSet merge(ValueSet other) {
         if (other instanceof BooleanValueSet set) {
             if (set.state == State.BOTTOM || this.state == State.BOTTOM) {
                 return new BooleanValueSet(State.BOTTOM);
@@ -37,6 +37,11 @@ public final class BooleanValueSet extends ValueSet {
         } else {
             throw new IllegalArgumentException("other must be a BooleanValueSet and not " + other.getClass().getName());
         }
+    }
+    
+    @Override
+    public BooleanValueSet tryMergeExact(ValueSet other) {
+        return this.merge(other);
     }
 
     @Override

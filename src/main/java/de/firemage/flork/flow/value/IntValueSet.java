@@ -102,6 +102,11 @@ public final class IntValueSet extends ValueSet {
     }
 
     @Override
+    public IntValueSet tryMergeExact(ValueSet other) {
+        return this.merge(other);
+    }
+
+    @Override
     public IntValueSet intersect(ValueSet o) {
         IntValueSet other = (IntValueSet) o; 
         List<IntInterval> result = new ArrayList<>();

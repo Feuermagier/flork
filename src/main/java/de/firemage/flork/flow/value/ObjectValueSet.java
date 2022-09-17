@@ -37,9 +37,31 @@ public final class ObjectValueSet extends ValueSet {
         } else if (other.isEmpty()) {
             return this;
         } else {
-            boolean resultExact = this.exact && other.exact && this.supertype.getQualifiedName().equals(other.supertype.getQualifiedName());
+            boolean resultExact = this.exact && other.exact && typesMatch(this, other);
             var resultType = TypeUtil.findLowestCommonSupertype(this.supertype, other.supertype, this.context);
             return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultExact, this.context);
+        }
+    }
+
+    @Override
+    public ValueSet tryMergeExact(ValueSet o) {
+        ObjectValueSet other = (ObjectValueSet) o;
+        if (this.isEmpty()) {
+            return other;
+        } else if (other.isEmpty()) {
+            return this;
+        } else if (this.exact && other.exact) {
+            if (typesMatch(this, other)) {
+                return new ObjectValueSet(this.nullness.merge(other.nullness), this.supertype, true, this.context);
+            } else {
+                return null;
+            }
+        } else if (this.isSupersetOf(other)) {
+            return this;
+        } else if (other.isSupersetOf(this)) {
+            return other;
+        } else {
+            return null;
         }
     }
 
@@ -49,7 +71,7 @@ public final class ObjectValueSet extends ValueSet {
         if (this.nullness.intersect(other.nullness) == Nullness.BOTTOM) {
             return ObjectValueSet.bottom(this.context);
         } else if (this.exact && other.exact) {
-            if (this.supertype.getQualifiedName().equals(other.supertype.getQualifiedName())) {
+            if (typesMatch(this, other)) {
                 return new ObjectValueSet(this.nullness.intersect(other.nullness), this.supertype, true, this.context);
             } else {
                 return ObjectValueSet.bottom(this.context);
@@ -123,6 +145,10 @@ public final class ObjectValueSet extends ValueSet {
 
     @Override
     public String toString() {
-        return (this.exact ? " =" : " <=") + this.supertype.getQualifiedName();
+        return this.nullness.toString().toLowerCase() + "/" + (this.exact ? "=" : "<=") + this.supertype.getQualifiedName();
+    }
+    
+    private boolean typesMatch(ObjectValueSet a, ObjectValueSet b)  {
+        return a.supertype.getQualifiedName().equals(b.supertype.getQualifiedName());
     }
 }

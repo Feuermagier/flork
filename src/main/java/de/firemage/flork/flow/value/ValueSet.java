@@ -21,6 +21,13 @@ public sealed abstract class ValueSet permits BooleanValueSet, IntValueSet, Obje
 
     public abstract ValueSet merge(ValueSet other);
 
+    /**
+     * May return null if we would lose precision by merging
+     * @param other
+     * @return
+     */
+    public abstract ValueSet tryMergeExact(ValueSet other);
+
     public abstract ValueSet intersect(ValueSet other);
 
     public abstract boolean isSupersetOf(ValueSet other);
