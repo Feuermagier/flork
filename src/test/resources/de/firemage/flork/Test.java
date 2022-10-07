@@ -1,6 +1,6 @@
 public class Test {
     public int foo(int x) {
-        return new Foo().xyz();
+        return bar().xyz();
     }
     
     public static Foo bar() {

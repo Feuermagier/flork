@@ -2,14 +2,16 @@ package de.firemage.flork.flow;
 
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.analysis.StubMethodAnalysis;
-import spoon.reflect.declaration.CtClass;
+import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.reference.CtExecutableReference;
-
 import java.util.List;
 
 public class CachedMethod {
     private final FlowContext context;
     private final CtExecutableReference<?> method;
+    private final boolean effectivelyFinal;
+    private final List<? extends CtExecutableReference<?>> overridingMethods;
+
     private StubMethodAnalysis unknownAnalysis;
     private List<MethodAnalysis> subtypeAnalyses;
     private MethodAnalysis localAnalysis;
@@ -20,49 +22,54 @@ public class CachedMethod {
         this.unknownAnalysis = null;
         this.subtypeAnalyses = null;
         this.localAnalysis = null;
+
+        if (context.isClosedWorld()) {
+            this.overridingMethods = TypeUtil.getAllOverridingMethods(this.method, this.context).toList();
+        } else {
+            this.overridingMethods = null; // Assuming that nobody tries to access the field...
+        }
+
+        this.effectivelyFinal = method.isConstructor()
+                || method.isStatic()
+                || method.getDeclaration() instanceof CtMethod m && m.isPrivate()
+                || method.isFinal()
+                || method.getDeclaringType() != null && method.getDeclaringType().getDeclaration().isFinal()
+                || context.isClosedWorld() && this.overridingMethods.isEmpty();
     }
 
     public String getName() {
         return this.method.getSimpleName();
     }
-    
+
     public boolean isStatic() {
         return this.method.isStatic();
     }
-    
-    public boolean isFinal() {
-        return this.method.isFinal();
+
+    public boolean isEffectivelyFinal() {
+        return this.effectivelyFinal;
     }
-    
+
     public boolean isConstructor() {
         return this.method.isConstructor();
     }
 
-    public MethodAnalysis getConstructorCallAnalysis() {
-        if (!this.isConstructor()) {
-            throw new IllegalStateException("Cannot constructor-call the non-constructor method " + this.getName());
-        }
-        return this.getLocalAnalysis();
-    }
-    
-    public MethodAnalysis getStaticCallAnalyses() {
-        if (!this.isStatic()) {
-            throw new IllegalStateException("Cannot static-call the non-static method " + this.getName());
-        }
+    /**
+     * For constructors, static methods and methods that can be proven to be of a specific type
+     *
+     * @return
+     */
+    public MethodAnalysis getFixedCallAnalysis() {
         return this.getLocalAnalysis();
     }
 
     public List<MethodAnalysis> getVirtualCallAnalyses() {
         if (this.isStatic()) {
             throw new IllegalStateException("Cannot virtual-call the non-virtual method " + this.getName());
-        } else if (this.isFinal() 
-            || this.method.getDeclaringType() != null && this.method.getDeclaringType().getDeclaration().isFinal()) {
+        } else if (this.effectivelyFinal) {
             return List.of(this.getLocalAnalysis());
         } else if (this.context.isClosedWorld()) {
             if (this.subtypeAnalyses == null) {
-                this.subtypeAnalyses =
-                    TypeUtil.getAllOverridingMethods(this.method, this.context).map(this.context::analyzeMethod)
-                        .toList();
+                this.subtypeAnalyses = this.overridingMethods.stream().map(this.context::analyzeMethod).toList();
             }
             return this.subtypeAnalyses;
         } else {

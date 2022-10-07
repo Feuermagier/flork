@@ -7,6 +7,7 @@ import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.reference.CtExecutableReference;
+import spoon.reflect.reference.CtTypeReference;
 
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +61,14 @@ public class FlowContext {
             }
             method.putMetadata("flork.methodAnalysis", newAnalysis);
             return newAnalysis;
+        }
+    }
+
+    public boolean isEffectivelyFinalType(CtTypeReference<?> type) {
+        if (type.getDeclaration() != null && type.getDeclaration().isFinal()) {
+            return true;
+        } else {
+            return this.model.getAllTypes().stream().anyMatch(t -> t.isSubtypeOf(type) && !t.getReference().equals(type));
         }
     }
 

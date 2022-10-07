@@ -71,8 +71,19 @@ public class FlowEngine {
         return this.states.isEmpty();
     }
 
+    public void clearStack() {
+        for (EngineState state : this.states) {
+            state.clearStack();
+        }
+        this.log("clearStack");
+    }
+
     public ValueSet peek() {
         return this.states.stream().map(EngineState::peek).reduce(ValueSet::merge).orElse(null);
+    }
+
+    public ValueSet peekOrVoid() {
+        return this.states.stream().map(EngineState::peekOrVoid).reduce(ValueSet::merge).orElse(null);
     }
 
     public List<ValueSet> peekAll() {
@@ -190,12 +201,12 @@ public class FlowEngine {
     
     public void callStatic(CachedMethod method) {
         this.collectStates(s -> s.callStatic(method));
-        this.log("callStatic" + method.getName());
+        this.log("callStatic " + method.getName());
     }
 
     public void callConstructor(CachedMethod method) {
         this.collectStates(s -> s.callConstructor(method));
-        this.log("callStatic" + method.getName());
+        this.log("callConstructor " + method.getName());
     }
     
     private void log(String instruction) {

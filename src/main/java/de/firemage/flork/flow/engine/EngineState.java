@@ -7,7 +7,9 @@ import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
+import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
+import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.reference.CtTypeReference;
 
 import java.util.ArrayList;
@@ -107,8 +109,20 @@ public class EngineState {
         return getValueOf(this.stack.getFirst());
     }
 
+    public ValueSet peekOrVoid() {
+        if (this.stack.isEmpty()) {
+            return VoidValue.getInstance();
+        } else {
+            return this.peek();
+        }
+    }
+
     public boolean isStackEmpty() {
         return this.stack.isEmpty();
+    }
+
+    public void clearStack() {
+        this.stack.clear();
     }
 
     public void negate() {
@@ -319,15 +333,19 @@ public class EngineState {
     }
 
     public List<EngineState> callStatic(CachedMethod method) {
-        return this.call(method.getStaticCallAnalyses());
+        return this.call(method.getFixedCallAnalysis());
     }
 
     public List<EngineState> callVirtual(CachedMethod method) {
-        return method.getVirtualCallAnalyses().stream().flatMap(m -> this.fork().call(m).stream()).toList();
+        if (((ObjectValueSet) this.peek()).isExact()) {
+            return this.call(method.getFixedCallAnalysis());
+        } else {
+            return method.getVirtualCallAnalyses().stream().flatMap(m -> this.fork().call(m).stream()).toList();
+        }
     }
 
     public List<EngineState> callConstructor(CachedMethod method) {
-        return this.call(method.getConstructorCallAnalysis());
+        return this.call(method.getFixedCallAnalysis());
     }
 
     private List<EngineState> call(MethodAnalysis method) {

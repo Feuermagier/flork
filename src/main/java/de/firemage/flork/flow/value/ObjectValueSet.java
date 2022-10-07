@@ -36,6 +36,10 @@ public final class ObjectValueSet extends ValueSet {
         return supertype;
     }
 
+    public boolean isExact() {
+        return exact;
+    }
+
     @Override
     public ValueSet merge(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
