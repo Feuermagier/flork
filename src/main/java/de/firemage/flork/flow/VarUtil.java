@@ -19,5 +19,6 @@ public final class VarUtil {
         } else if (statement instanceof CtVariableWrite<?> write) {
             throw new NullPointerException(String.valueOf(++i));
         }
+        return Stream.of();
     }
 }

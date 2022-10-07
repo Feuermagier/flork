@@ -1,18 +1,26 @@
 public class Test {
-    public Test foo(int x) {
-        System.out.println(1);
-        return bar(x, new Test());
+    public int foo(int x) {
+        return new Foo().xyz();
     }
     
-    public static Test bar(int x, Test test) {
-        if (x >= 0) {
-            return new Test();
-        } else {
-            return null;
-        }
+    public static Foo bar() {
+        return XYZ.x();
     }
 
     public void baz() {
 
+    }
+}
+
+class Foo {
+    public int xyz() {
+        return 1;
+    }
+}
+
+class Bar extends Foo {
+    @Override
+    public int xyz() {
+        return 2;
     }
 }

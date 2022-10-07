@@ -3,9 +3,12 @@ package de.firemage.flork.flow.value;
 import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeUtil;
+import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.engine.Relation;
+import spoon.reflect.reference.CtExecutableReference;
 import spoon.reflect.reference.CtTypeReference;
 
+import java.util.List;
 import java.util.Objects;
 
 public final class ObjectValueSet extends ValueSet {
@@ -23,6 +26,10 @@ public final class ObjectValueSet extends ValueSet {
         this.supertype = supertype;
         this.exact = exact;
         this.context = context;
+    }
+    
+    public ObjectValueSet(ObjectValueSet other) {
+        this(other.nullness, other.supertype, other.exact, other.context);
     }
 
     public CtTypeReference<?> getSupertype() {

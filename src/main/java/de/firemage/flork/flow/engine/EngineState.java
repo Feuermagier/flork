@@ -1,11 +1,12 @@
 package de.firemage.flork.flow.engine;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
-import de.firemage.flork.flow.MethodAnalysis;
-import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.reference.CtTypeReference;
 
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
 public class EngineState {
     private final FlowContext context;
 
-    // The current state of all locals
+    // The current state of all locals, including a local named "this" for the this-pointer
     private final Map<String, VarState> localsState;
 
     // The current state of the stack
@@ -78,6 +79,10 @@ public class EngineState {
 
     public void pushValue(ValueSet value) {
         this.stack.push(new ConcreteStackValue(value));
+    }
+
+    public void pushThis() {
+        this.pushLocal("this");
     }
 
     public void pushLocal(String name) {
@@ -313,7 +318,19 @@ public class EngineState {
         };
     }
 
-    public List<EngineState> call(MethodAnalysis method) {
+    public List<EngineState> callStatic(CachedMethod method) {
+        return this.call(method.getStaticCallAnalyses());
+    }
+
+    public List<EngineState> callVirtual(CachedMethod method) {
+        return method.getVirtualCallAnalyses().stream().flatMap(m -> this.fork().call(m).stream()).toList();
+    }
+
+    public List<EngineState> callConstructor(CachedMethod method) {
+        return this.call(method.getConstructorCallAnalysis());
+    }
+
+    private List<EngineState> call(MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             return List.of(this);
         }

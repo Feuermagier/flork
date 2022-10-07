@@ -1,5 +1,8 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.analysis;
 
+import de.firemage.flork.flow.CachedMethod;
+import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.engine.FlowEngine;
 import de.firemage.flork.flow.engine.Relation;
 import de.firemage.flork.flow.value.BooleanValueSet;
@@ -18,12 +21,14 @@ import spoon.reflect.code.CtLiteral;
 import spoon.reflect.code.CtLocalVariable;
 import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtStatement;
+import spoon.reflect.code.CtThisAccess;
 import spoon.reflect.code.CtUnaryOperator;
 import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtConstructor;
 import spoon.reflect.declaration.CtExecutable;
+import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.declaration.CtVariable;
 import spoon.reflect.reference.CtLocalVariableReference;
@@ -32,26 +37,49 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FlowMethodAnalysis implements MethodAnalysis {
-    private final FlowAnalysis flowAnalysis;
+    private final FlowContext context;
     private final CtExecutable<?> method;
     private final List<String> parameterNames;
     private final List<MethodExitState> returnStates;
     private final boolean effectivelyVoid;
 
-    private FlowMethodAnalysis(CtExecutable<?> method, FlowAnalysis flowAnalysis) {
-        this.flowAnalysis = flowAnalysis;
+    private FlowMethodAnalysis(CtExecutable<?> method, FlowContext context) {
+        this.context = context;
         this.method = method;
         this.returnStates = new ArrayList<>();
         this.parameterNames = new ArrayList<>();
         this.effectivelyVoid = method instanceof CtConstructor || method.getType().getSimpleName().equals("void");
+        
+        // This pointer
+        ObjectValueSet thisPointer;
+        if (method instanceof CtConstructor<?> c) {
+            boolean effectivelyFinal = c.getDeclaringType().isFinal();
+            thisPointer = new ObjectValueSet(Nullness.NON_NULL, c.getDeclaringType().getReference(), effectivelyFinal, this.context);
+        } else if (method instanceof CtMethod<?> m) {
+            if (m.isStatic()) {
+                thisPointer = null;
+            } else {
+                boolean effectivelyFinal = m.isFinal() || m.getDeclaringType().isFinal();
+                thisPointer = new ObjectValueSet(Nullness.NON_NULL, m.getDeclaringType().getReference(), effectivelyFinal,
+                    this.context);
+            }
+        } else {
+            throw new UnsupportedOperationException("Unknown executable type " + method.getClass());
+        }
+        
+        if (thisPointer != null) {
+            parameterNames.add("this"); // this is the first parameter
+        }
 
+        // Other parameters
+        
         for (CtParameter<?> parameter : method.getParameters()) {
             parameterNames.add(parameter.getSimpleName());
         }
 
         System.out.println("================== Analyzing " + this.method.getSimpleName() + " ==================");
-
-        FlowEngine engine = new FlowEngine(method.getParameters(), this.flowAnalysis.getContext());
+        
+        FlowEngine engine = new FlowEngine(thisPointer, method.getParameters(), this.context);
         analyzeBlock(method.getBody(), engine);
         if (!engine.isStackEmpty()) {
             throw new IllegalStateException("Stack is not empty after end of method");
@@ -67,8 +95,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         System.out.println("================== " + this.method.getSimpleName() + " completed ==================");
     }
 
-    public static MethodAnalysis analyzeMethod(CtExecutable<?> method, FlowAnalysis flowAnalysis) {
-        return new FlowMethodAnalysis(method, flowAnalysis);
+    public static MethodAnalysis analyzeMethod(CtExecutable<?> method, FlowContext context) {
+        return new FlowMethodAnalysis(method, context);
     }
 
     @Override
@@ -144,7 +172,13 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 case NEG -> engine.negate();
                 default -> throw new UnsupportedOperationException();
             }
+        } else if (expression instanceof CtThisAccess<?>) {
+            engine.pushThis();
         } else if (expression instanceof CtInvocation<?> invocation) {
+            if (invocation.getTarget() != null) {
+                analyzeExpression(invocation.getTarget(), engine);
+            }
+            
             analyzeInvocation(invocation, engine);
         } else if (expression instanceof CtConstructorCall<?> constructorCall) {
             analyzeConstructorCall(constructorCall, engine);
@@ -152,7 +186,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             throw new UnsupportedOperationException(expression.getClass().getName());
         }
 
-        expression.putMetadata(FlowAnalysis.VALUE_KEY, engine.peek());
+        expression.putMetadata(FlowContext.VALUE_KEY, engine.peek());
     }
 
     private void analyzeAssignment(CtAssignment<?, ?> assignment, FlowEngine engine) {
@@ -183,7 +217,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         } else {
             // I'm pretty sure that the only non-primitive literal is the null literal
             System.out.println(literal.getType().getQualifiedName());
-            engine.pushValue(new ObjectValueSet(Nullness.NULL, literal.getType(), true, this.flowAnalysis.getContext()));
+            engine.pushValue(new ObjectValueSet(Nullness.NULL, literal.getType(), true, this.context));
         }
     }
 
@@ -235,22 +269,27 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeInvocation(CtInvocation<?> invocation, FlowEngine engine) {
-        MethodAnalysis analysis = this.flowAnalysis.analyzeMethod(invocation.getExecutable());
+        CachedMethod calledMethod = this.context.getCachedMethod(invocation.getExecutable());
         for (int i = invocation.getArguments().size() - 1; i >= 0; i--) {
             analyzeExpression(invocation.getArguments().get(i), engine);
         }
-        engine.call(analysis);
+        if (calledMethod.isStatic()) {
+            engine.callStatic(calledMethod);
+        } else {
+            engine.callVirtual(calledMethod);
+        }
     }
 
     private void analyzeConstructorCall(CtConstructorCall<?> call, FlowEngine engine) {
-        MethodAnalysis analysis = this.flowAnalysis.analyzeMethod(call.getExecutable());
+        CachedMethod calledMethod = this.context.getCachedMethod(call.getExecutable());
+        engine.pushThis();
         for (int i = call.getArguments().size() - 1; i >= 0; i--) {
             analyzeExpression(call.getArguments().get(i), engine);
         }
-        engine.call(analysis); // Call the constructor
+        engine.callConstructor(calledMethod); // Call the constructor
         engine.pop(); // Pop the void value pushed by the constructor
         engine.pushValue(new ObjectValueSet(Nullness.NON_NULL, call.getExecutable().getType(), true,
-                this.flowAnalysis.getContext())); // Push the new object
+                this.context)); // Push the new object
     }
     
     private void analyzeIf(CtIf ifStmt, FlowEngine engine) {

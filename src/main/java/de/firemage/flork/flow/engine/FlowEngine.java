@@ -1,7 +1,9 @@
 package de.firemage.flork.flow.engine;
 
+import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
-import de.firemage.flork.flow.MethodAnalysis;
+import de.firemage.flork.flow.analysis.MethodAnalysis;
+import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.reference.CtTypeReference;
@@ -17,13 +19,19 @@ import java.util.stream.Collectors;
 public class FlowEngine {
     private Set<EngineState> states;
 
-    public FlowEngine(List<CtParameter<?>> parameters, FlowContext context) {
+    public FlowEngine(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         Map<String, VarState> initialValues = new HashMap<>();
         Set<String> parameterNames = new HashSet<>();
         for (CtParameter<?> parameter : parameters) {
             initialValues.put(parameter.getSimpleName(), new VarState(ValueSet.topForType(parameter.getType(), context), Set.of()));
             parameterNames.add(parameter.getSimpleName());
         }
+        
+        if (thisPointer != null) {
+            initialValues.put("this", new VarState(thisPointer, Set.of()));
+            parameterNames.add("this");
+        }
+        
         this.states = new HashSet<>();
         this.states.add(new EngineState(initialValues, parameterNames, context));
     }
@@ -89,6 +97,13 @@ public class FlowEngine {
         this.log("push " + value);
     }
 
+    public void pushThis() {
+        for (EngineState state : this.states) {
+            state.pushThis();
+        }
+        this.log("pushThis");
+    }
+    
     public void pushLocal(String name) {
         for (EngineState state : this.states) {
             state.pushLocal(name);
@@ -168,9 +183,19 @@ public class FlowEngine {
         this.log(relation.toString());
     }
     
-    public void call(MethodAnalysis method) {
-        this.collectStates(s -> s.call(method));
-        this.log("call " + method.getName());
+    public void callVirtual(CachedMethod method) {
+        this.collectStates(s -> s.callVirtual(method));
+        this.log("callVirtual " + method.getName());
+    }
+    
+    public void callStatic(CachedMethod method) {
+        this.collectStates(s -> s.callStatic(method));
+        this.log("callStatic" + method.getName());
+    }
+
+    public void callConstructor(CachedMethod method) {
+        this.collectStates(s -> s.callConstructor(method));
+        this.log("callStatic" + method.getName());
     }
     
     private void log(String instruction) {

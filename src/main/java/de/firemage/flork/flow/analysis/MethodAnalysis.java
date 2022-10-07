@@ -1,4 +1,6 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.analysis;
+
+import de.firemage.flork.flow.MethodExitState;
 
 import java.util.List;
 
