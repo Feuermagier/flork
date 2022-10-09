@@ -4,14 +4,13 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
-import spoon.reflect.reference.CtTypeReference;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -75,7 +74,7 @@ public class EngineState {
         return paramStates;
     }
 
-    public void createLocal(String name, CtTypeReference<?> type) {
+    public void createLocal(String name, TypeId type) {
         this.localsState.put(name, new VarState(ValueSet.topForType(type, this.context), Set.of()));
     }
 
@@ -340,7 +339,13 @@ public class EngineState {
         if (((ObjectValueSet) this.peek()).isExact()) {
             return this.call(method.getFixedCallAnalysis());
         } else {
-            return method.getVirtualCallAnalyses().stream().flatMap(m -> this.fork().call(m).stream()).toList();
+            return method.getVirtualCallAnalyses().stream()
+                    .flatMap(m -> this.fork()
+                            //.assertTos(new ObjectValueSet(Nullness.NON_NULL, m.getThisType()))
+                            .call(m)
+                            .stream()
+                    )
+                    .toList();
         }
     }
 

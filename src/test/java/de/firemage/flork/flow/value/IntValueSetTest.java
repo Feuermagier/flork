@@ -1,4 +1,4 @@
-package de.firemage.flork.flow;
+package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.value.IntValueSet;
 import org.junit.jupiter.api.Test;

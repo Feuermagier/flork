@@ -7,6 +7,7 @@ import spoon.compiler.ModelBuildingException;
 import spoon.reflect.CtModel;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.reference.CtExecutableReference;
+import spoon.reflect.reference.CtTypeReference;
 import spoon.support.compiler.FileSystemFile;
 import spoon.support.compiler.FileSystemFolder;
 
@@ -24,14 +25,14 @@ class MethodAnalysisTest {
 
         CtModel model = launcher.buildModel();
 
-        var context = new FlowContext(model, true);
+        var context = new FlowContext(launcher.getFactory(), true);
         var method = (CtMethod<?>) model.getUnnamedModule()
             .getElements(CtMethod.class::isInstance)
             .stream()
             .filter(m -> ((CtMethod<?>) m).getSimpleName().equals("foo"))
             .findFirst().get();
         System.out.println(method);
-        var result = context.analyzeMethod(method.getReference());
+        var result = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
 
         System.out.println(result.getReturnStates().size() + " return states: " + result.getReturnStates());
     }

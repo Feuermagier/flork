@@ -2,19 +2,23 @@ package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
-import spoon.reflect.reference.CtTypeReference;
 
-public sealed abstract class ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
+public abstract sealed class ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
 
-    public static ValueSet topForType(CtTypeReference<?> type, FlowContext context) {
+    public static ValueSet topForType(TypeId type, FlowContext context) {
         if (!type.isPrimitive()) {
-            return new ObjectValueSet(Nullness.UNKNOWN, type, false, context);
+            if (context.isEffectivelyFinalType(type)) {
+                return ObjectValueSet.forExactType(Nullness.UNKNOWN, type, context);
+            } else {
+                return ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, type, context);
+            }
         } else {
-            return switch (type.getSimpleName()) {
+            return switch (type.getName()) {
                 case "boolean" -> BooleanValueSet.top();
                 case "int" -> IntValueSet.topForInt();
-                default -> throw new UnsupportedOperationException(type.getSimpleName());
+                default -> throw new UnsupportedOperationException(type.getName());
             };
         }
     }
@@ -23,6 +27,7 @@ public sealed abstract class ValueSet permits BooleanValueSet, IntValueSet, Obje
 
     /**
      * May return null if we would lose precision by merging
+     *
      * @param other
      * @return
      */
@@ -37,8 +42,8 @@ public sealed abstract class ValueSet permits BooleanValueSet, IntValueSet, Obje
     public abstract BooleanStatus fulfillsRelation(ValueSet other, Relation relation);
 
     public abstract ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
-    
+
     public abstract boolean equals(Object o);
-    
+
     public abstract int hashCode();
 }
