@@ -4,34 +4,43 @@ import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.TypeId;
+import de.firemage.flork.flow.engine.VarId;
 import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
+
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class HardcodedMethodAnalysis implements MethodAnalysis {
     private final List<MethodExitState> returnStates;
-    private final List<String> parameters;
+    private final List<VarId> parameters;
 
-    // Set after initialization to avoid manually constructing a CtExecutableReference
     private CachedMethod method;
 
-    public HardcodedMethodAnalysis(TypeId returnType, List<String> parameterNames,
-                                   Map<String, TypeId> parameterTypes,
-                                   FlowContext context) {
+    public HardcodedMethodAnalysis(CachedMethod method, List<VarId> parameterNames, FlowContext context) {
+        if (parameterNames.size() != method.getExecutable().getParameters().size()) {
+            throw new IllegalArgumentException(
+                "The number of parameter names does not match the number of parameters reported by the executable");
+        }
+
         this.parameters = new ArrayList<>(parameterNames);
-        if (returnType == null || returnType.isVoid()) {
+        this.method = method;
+
+        var parameterTypes = new HashMap<VarId, TypeId>();
+        for (int i = 0; i < parameterNames.size(); i++) {
+            parameterTypes.put(parameterNames.get(i), new TypeId(method.getExecutable().getParameters().get(i)));
+        }
+
+        var returnType = new TypeId(method.getExecutable().getType());
+
+        if (returnType.isVoid()) {
             this.returnStates = List.of(new MethodExitState(VoidValue.getInstance(),
-                    StubMethodAnalysis.createGenericParameterConditions(parameterTypes, context)));
+                StubMethodAnalysis.createGenericParameterConditions(parameterTypes, context)));
         } else {
             this.returnStates = List.of(new MethodExitState(ValueSet.topForType(returnType, context),
-                    StubMethodAnalysis.createGenericParameterConditions(parameterTypes, context)));
+                StubMethodAnalysis.createGenericParameterConditions(parameterTypes, context)));
         }
-    }
-
-    public static HardcodedMethodAnalysis forParameterlessVoid(FlowContext context) {
-        return new HardcodedMethodAnalysis(null, List.of(), Map.of(), context);
     }
 
     /* package-private */ void setCachedMethod(CachedMethod method) {
@@ -55,7 +64,7 @@ public class HardcodedMethodAnalysis implements MethodAnalysis {
     }
 
     @Override
-    public List<String> getOrderedParameterNames() {
+    public List<VarId> getOrderedParameterNames() {
         return this.parameters;
     }
 }

@@ -8,9 +8,11 @@ import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
+import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -21,50 +23,51 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class EngineState {
+    private static final VarId THIS = VarId.forLocal("this");
+
     private final FlowContext context;
 
     // The current state of all locals, including a local named "this" for the this-pointer
-    private final Map<String, VarState> localsState;
+    private final Map<SSAVarId, VarState> varsState;
 
     // The current state of the stack
     private final ValueStack stack;
 
-    // The value of parameters before they are overwritten; to be used in MethodExitState
-    private final Map<String, VarState> savedInitialParameterStates;
-
     // List of locals that are also parameters
-    private final Set<String> parameters;
+    private final Set<VarId> parameters;
+    
+    // Maps VarIds to their live SSAVarId
+    private final Map<VarId, SSAVarId> liveVariables;
 
-    public EngineState(Map<String, VarState> localsState, Set<String> parameters, FlowContext context) {
+    public EngineState(Map<SSAVarId, VarState> varsState, Set<VarId> parameters, FlowContext context) {
         this.context = context;
-        this.localsState = localsState;
+        this.varsState = varsState;
         this.parameters = parameters;
-        this.savedInitialParameterStates = new HashMap<>(parameters.size());
         this.stack = new ValueStack();
+        this.liveVariables = new HashMap<>(parameters.size());
     }
 
     public EngineState(EngineState other) {
         this.context = other.context;
-        this.localsState = new HashMap<>(other.localsState);
+        this.varsState = new HashMap<>(other.varsState);
         this.parameters = other.parameters;
-        this.savedInitialParameterStates = new HashMap<>(other.savedInitialParameterStates);
         this.stack = new ValueStack(other.stack);
+        this.liveVariables = new HashMap<>(other.liveVariables);
     }
 
     public EngineState fork() {
         return new EngineState(this);
     }
 
-    public Map<String, VarState> getParamStates() {
+    public Map<VarId, VarState> getParamStates() {
         // Remove relations with non-parameter locals
-        Map<String, VarState> paramStates = new HashMap<>(this.savedInitialParameterStates.size());
-        for (String param : this.parameters) {
-            VarState value;
-            if (this.savedInitialParameterStates.containsKey(param)) {
-                value = this.savedInitialParameterStates.get(param);
-            } else {
-                value = this.localsState.get(param);
-            }
+        Map<VarId, VarState> paramStates = new HashMap<>(this.parameters.size());
+        for (VarId param : this.parameters) {
+            VarState value = this.varsState.entrySet().stream()
+                .filter(e -> e.getKey().varId().equals(param) && e.getKey().isInitial())
+                .findAny()
+                .get()
+                .getValue();
             paramStates.put(param, new VarState(value.value(), value
                 .relations()
                 .stream()
@@ -74,8 +77,8 @@ public class EngineState {
         return paramStates;
     }
 
-    public void createLocal(String name, TypeId type) {
-        this.localsState.put(name, new VarState(ValueSet.topForType(type, this.context), Set.of()));
+    public void createVariable(VarId name, TypeId type) {
+        this.varsState.put(SSAVarId.forFresh(name), new VarState(ValueSet.topForType(type, this.context), Set.of()));
     }
 
     public void pushValue(ValueSet value) {
@@ -83,20 +86,33 @@ public class EngineState {
     }
 
     public void pushThis() {
-        this.pushLocal("this");
+        this.pushVar(THIS);
     }
 
-    public void pushLocal(String name) {
-        this.stack.push(new LocalRefStackValue(name));
+    public void pushVar(VarId variable) {
+        this.stack.push(new LocalRefStackValue(this.liveVariables.get(variable)));
     }
 
-    public void storeLocal(String name) {
-        if (this.parameters.contains(name) && !this.savedInitialParameterStates.containsKey(name)) {
-            this.savedInitialParameterStates.put(name, this.localsState.get(name));
+    public void pushField(String field) {
+        StackValue tos = this.stack.peek();
+        if (tos instanceof LocalRefStackValue ref) {
+            VarId path = ref.local().varId().resolveField(field);
+            this.createVarIfMissing(path);
+            this.pushVar(path);
+        } else if (tos instanceof ConcreteStackValue concrete) {
+            if (concrete.value() instanceof ObjectValueSet object) {
+                this.pushValue(ValueSet.topForType(object.getFieldType(field), this.context));
+            } else {
+                throw new IllegalStateException();
+            }
         }
-        this.localsState.put(name, new VarState(getValueOf(this.stack.peek()), Set.of()));
+    }
+
+    public void storeVar(VarId variable) {
+        SSAVarId ssa = this.getNextVar(variable);
+        this.varsState.put(ssa, new VarState(getValueOf(this.stack.peek()), Set.of()));
         if (this.stack.peek() instanceof LocalRefStackValue ref) {
-            this.addRelationAndExtendTransitive(name, new VarRelation(ref.local(), Relation.EQUAL));
+            this.addRelationAndExtendTransitive(ssa, new VarRelation(ref.local(), Relation.EQUAL));
         }
     }
 
@@ -105,7 +121,7 @@ public class EngineState {
     }
 
     public ValueSet peek() {
-        return getValueOf(this.stack.getFirst());
+        return getValueOf(this.stack.peek());
     }
 
     public ValueSet peekOrVoid() {
@@ -179,8 +195,6 @@ public class EngineState {
         IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
         if (rhsValue.isSingle(1)) {
             this.stack.push(lhs);
-        } else if (lhsValue.isSingle(1)) {
-            this.stack.push(rhs);
         } else {
             this.stack.push(new ConcreteStackValue(lhsValue.divide(rhsValue)));
         }
@@ -283,7 +297,7 @@ public class EngineState {
 
         // Query known relations first
         if (lhs instanceof LocalRefStackValue lhsRef && rhs instanceof LocalRefStackValue rhsRef) {
-            VarState lhsState = this.localsState.get(lhsRef.local());
+            VarState lhsState = this.varsState.get(lhsRef.local());
             switch (checkRelation(lhsRef.local(), lhsState, rhsRef.local(), relation)) {
                 case ALWAYS -> {
                     this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
@@ -336,16 +350,20 @@ public class EngineState {
     }
 
     public List<EngineState> callVirtual(CachedMethod method) {
-        if (((ObjectValueSet) this.peek()).isExact()) {
+        int thisOffset = method.getExecutable().getParameters().size();
+        if (((ObjectValueSet) this.getValueOf(this.stack.peek(thisOffset))).isExact()) {
             return this.call(method.getFixedCallAnalysis());
         } else {
-            return method.getVirtualCallAnalyses().stream()
-                    .flatMap(m -> this.fork()
-                            //.assertTos(new ObjectValueSet(Nullness.NON_NULL, m.getThisType()))
-                            .call(m)
-                            .stream()
-                    )
-                    .toList();
+            List<EngineState> resultStates = new ArrayList<>();
+            for (MethodAnalysis analysis : method.getVirtualCallAnalyses()) {
+                EngineState state = this.fork();
+                ObjectValueSet requiredThis =
+                    ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, analysis.getMethod().getThisType().get(),
+                        this.context);
+                state.stack.overwrite(assertStackValue(state.stack.peek(thisOffset), requiredThis), thisOffset);
+                resultStates.addAll(state.call(analysis));
+            }
+            return resultStates;
         }
     }
 
@@ -363,16 +381,20 @@ public class EngineState {
         exit:
         for (MethodExitState returnState : method.getReturnStates()) {
             EngineState state = new EngineState(this);
-            Map<String, StackValue> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
+            Map<VarId, StackValue> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
+
+            var orderedParameters = method.getOrderedParameterNames();
 
             // Extract the parameters
-            for (String param : method.getOrderedParameterNames()) {
+            for (int i = orderedParameters.size() - 1; i >= 0; i--) {
+                var param = orderedParameters.get(i);
                 StackValue tos = state.stack.pop();
                 paramToArgument.put(param, tos);
             }
 
             // Check all parameters and add relations
-            for (String param : method.getOrderedParameterNames()) {
+            for (int i = orderedParameters.size() - 1; i >= 0; i--) {
+                var param = orderedParameters.get(i);
                 VarState paramState = returnState.parameters().get(param);
                 StackValue argument = paramToArgument.get(param);
                 ValueSet argumentValue = getValueOf(argument).intersect(paramState.value());
@@ -380,15 +402,16 @@ public class EngineState {
                     continue exit;
                 }
                 for (VarRelation relation : paramState.relations()) {
-                    argumentValue =
-                        argumentValue.removeNotFulfillingValues(getValueOf(paramToArgument.get(relation.rhs())),
-                            relation.relation());
+                    argumentValue = argumentValue.removeNotFulfillingValues(
+                        getValueOf(paramToArgument.get(relation.rhs().varId())), 
+                        relation.relation()
+                    );
                     if (argumentValue.isEmpty()) {
                         continue exit;
                     }
                     if (argument instanceof LocalRefStackValue lhs &&
-                        paramToArgument.get(relation.rhs()) instanceof LocalRefStackValue rhs) {
-                        switch (state.checkRelation(lhs.local(), this.localsState.get(lhs.local()), rhs.local(),
+                        paramToArgument.get(relation.rhs().varId()) instanceof LocalRefStackValue rhs) {
+                        switch (state.checkRelation(lhs.local(), this.varsState.get(lhs.local()), rhs.local(),
                             relation.relation())) {
                             case NEVER -> {
                                 continue exit;
@@ -421,7 +444,7 @@ public class EngineState {
         if (value instanceof ConcreteStackValue concrete) {
             return concrete.value();
         } else {
-            return this.localsState.get(((LocalRefStackValue) value).local()).value();
+            return this.varsState.get(((LocalRefStackValue) value).local()).value();
         }
     }
 
@@ -429,7 +452,7 @@ public class EngineState {
         if (!this.getValueOf(stackValue).isSupersetOf(value)) {
             throw new IllegalStateException(this.getValueOf(stackValue) + " is not a superset of " + value);
         } else if (stackValue instanceof LocalRefStackValue ref) {
-            this.localsState.put(ref.local(), new VarState(value, this.localsState.get(ref.local()).relations()));
+            this.varsState.put(ref.local(), new VarState(value, this.varsState.get(ref.local()).relations()));
             return stackValue;
         } else {
             return new ConcreteStackValue(value);
@@ -442,18 +465,18 @@ public class EngineState {
         }
     }
 
-    private void addRelationAndExtendTransitive(String lhs, VarRelation relation) {
-        if (this.localsState.get(lhs).relations().contains(relation) || relation.rhs().equals(lhs)) {
+    private void addRelationAndExtendTransitive(SSAVarId lhs, VarRelation relation) {
+        if (this.varsState.get(lhs).relations().contains(relation) || relation.rhs().equals(lhs)) {
             return;
         }
 
         VarState local =
-            this.localsState.compute(lhs, (k, v) -> addRelationAndTrimValue(v, relation.rhs(), relation.relation()));
+            this.varsState.compute(lhs, (k, v) -> addRelationAndTrimValue(v, relation.rhs(), relation.relation()));
         //this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
 
         if (relation.relation() == Relation.NOT_EQUAL) {
             // != is not transitive, but symmetric
-            this.localsState.compute(relation.rhs(), (k, v) -> addRelationAndTrimValue(v, lhs, Relation.NOT_EQUAL));
+            this.varsState.compute(relation.rhs(), (k, v) -> addRelationAndTrimValue(v, lhs, Relation.NOT_EQUAL));
             return;
         }
 
@@ -465,14 +488,14 @@ public class EngineState {
             .forEach(r -> addRelationAndExtendTransitive(r.rhs(), new VarRelation(lhs, relation.relation().invert())));
     }
 
-    private VarState addRelationAndTrimValue(VarState state, String rhs, Relation relation) {
+    private VarState addRelationAndTrimValue(VarState state, SSAVarId rhs, Relation relation) {
         Set<VarRelation> relations = new HashSet<>(state.relations());
         relations.add(new VarRelation(rhs, relation));
-        ValueSet value = state.value().removeNotFulfillingValues(this.localsState.get(rhs).value(), relation);
+        ValueSet value = state.value().removeNotFulfillingValues(this.varsState.get(rhs).value(), relation);
         return new VarState(value, relations);
     }
 
-    private BooleanStatus checkRelation(String lhs, VarState lhsState, String rhs, Relation relation) {
+    private BooleanStatus checkRelation(SSAVarId lhs, VarState lhsState, SSAVarId rhs, Relation relation) {
         if (lhs.equals(rhs)) {
             if (Relation.EQUAL.implies(relation)) {
                 return BooleanStatus.ALWAYS;
@@ -489,7 +512,7 @@ public class EngineState {
         }
     }
 
-    private boolean hasRelation(VarState lhsState, String rhs, Relation relation) {
+    private boolean hasRelation(VarState lhsState, SSAVarId rhs, Relation relation) {
         for (VarRelation r : lhsState.relations()) {
             if (r.relation().implies(relation) && r.rhs().equals(rhs)) {
                 return true;
@@ -497,22 +520,46 @@ public class EngineState {
         }
         return false;
     }
+    
+    private SSAVarId getNextVar(VarId varId) {
+        return this.liveVariables.compute(varId, (id, ssa) -> {
+            if (ssa == null) {
+                return SSAVarId.forFresh(varId);
+            } else {
+                return ssa.next();
+            }
+        });
+    }
+    
+    private void createVarIfMissing(VarId varId) {
+        this.liveVariables.computeIfAbsent(varId, v -> {
+            VarState parent = this.varsState.get(this.liveVariables.get(v.parent()));
+            if (parent.value() instanceof ObjectValueSet object) {
+                SSAVarId ssa = SSAVarId.forFresh(varId);
+                var state = new VarState(ValueSet.topForType(object.getFieldType(varId.fieldName()), this.context), Set.of());
+                this.varsState.put(ssa, state);
+                return ssa;
+            } else {
+                throw new IllegalStateException();
+            }
+        });
+    }
 
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         EngineState that = (EngineState) o;
-        return localsState.equals(that.localsState) && stack.equals(that.stack);
+        return varsState.equals(that.varsState) && stack.equals(that.stack) && liveVariables.equals(that.liveVariables);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(localsState, stack);
+        return Objects.hash(varsState, stack, liveVariables);
     }
 
     @Override
     public String toString() {
-        return this.stack + " " + this.localsState;
+        return this.stack + " " + this.varsState;
     }
 }

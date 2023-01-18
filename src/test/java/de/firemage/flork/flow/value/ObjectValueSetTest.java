@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.engine.Relation;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import spoon.Launcher;
@@ -24,7 +25,7 @@ class ObjectValueSetTest {
             """;
 
     private static FlowContext context;
-
+    
     @BeforeAll
     static void setup() {
         Launcher launcher = new Launcher();
@@ -186,6 +187,48 @@ class ObjectValueSetTest {
                 new ObjectValueSet(Nullness.UNKNOWN, top, Set.of(midA, midB), context),
                 new ObjectValueSet(Nullness.UNKNOWN, midB, Set.of(midB), context),
                 new ObjectValueSet(Nullness.UNKNOWN, midA, Set.of(midA), context)
+        );
+
+        testMerge(
+            new ObjectValueSet(Nullness.UNKNOWN, top, Set.of(midB), context),
+            new ObjectValueSet(Nullness.UNKNOWN, top, Set.of(midB), context),
+            new ObjectValueSet(Nullness.UNKNOWN, midA, Set.of(midA), context)
+        );
+    }
+    
+    @Test
+    void removeNotFulfillingValues() {
+        var top = context.getType("Top");
+        var midA = context.getType("MidA");
+        var child1MidA = context.getType("Child1MidA");
+        var midB = context.getType("MidB");
+        
+        // Relation.EQUAL
+        assertEquals(
+            new ObjectValueSet(Nullness.UNKNOWN, child1MidA, Set.of(), context),
+            ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, top, context)
+                .removeNotFulfillingValues(ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, child1MidA, context), Relation.EQUAL)
+        );
+        
+        // Relation.NOT_EQUAL
+        assertEquals(ObjectValueSet.forUnconstrainedType(Nullness.NULL, top, context),
+            ObjectValueSet.forUnconstrainedType(Nullness.NULL, top, context)
+                .removeNotFulfillingValues(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, top, context), Relation.NOT_EQUAL)
+        );
+
+        assertEquals(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, top, context),
+            ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, top, context)
+                .removeNotFulfillingValues(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, top, context), Relation.NOT_EQUAL)
+        );
+
+        assertEquals(ObjectValueSet.bottom(context),
+            ObjectValueSet.forUnconstrainedType(Nullness.NULL, top, context)
+                .removeNotFulfillingValues(ObjectValueSet.forUnconstrainedType(Nullness.NULL, top, context), Relation.NOT_EQUAL)
+        );
+        
+        assertEquals(ObjectValueSet.bottom(context),
+            ObjectValueSet.forUnconstrainedType(Nullness.NULL, top, context)
+                .removeNotFulfillingValues(ObjectValueSet.forUnconstrainedType(Nullness.NULL, midA, context), Relation.NOT_EQUAL)
         );
     }
 

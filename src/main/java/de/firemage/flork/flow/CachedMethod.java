@@ -6,12 +6,14 @@ import de.firemage.flork.flow.analysis.StubMethodAnalysis;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.reference.CtExecutableReference;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 public class CachedMethod {
     private final FlowContext context;
     private final CtExecutableReference<?> method;
+    private final String qualifiedName;
     private final boolean isOverriden;
     private final boolean effectivelyFinal;
 
@@ -24,6 +26,7 @@ public class CachedMethod {
         this.method = method;
         this.virtualCallAnalyses = null;
         this.localAnalysis = null;
+        this.qualifiedName = FlowContext.buildQualifiedExecutableName(method);
 
         this.isOverriden = method.getDeclaringType() != null && method.getDeclaringType().getDeclaration().isFinal();
 
@@ -118,5 +121,23 @@ public class CachedMethod {
             this.context.log("= Retrieved cached analysis of " + this.method.getSignature());
         }
         return this.localAnalysis;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        CachedMethod that = (CachedMethod) o;
+        return qualifiedName.equals(that.qualifiedName);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(qualifiedName);
+    }
+
+    @Override
+    public String toString() {
+        return this.getName();
     }
 }

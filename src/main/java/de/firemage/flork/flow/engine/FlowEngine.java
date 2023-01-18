@@ -6,6 +6,7 @@ import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
+
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -21,16 +22,19 @@ public class FlowEngine {
     public FlowEngine(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
 
-        Map<String, VarState> initialValues = new HashMap<>();
-        Set<String> parameterNames = new HashSet<>();
+        Map<SSAVarId, VarState> initialValues = new HashMap<>();
+        Set<VarId> parameterNames = new HashSet<>();
         for (CtParameter<?> parameter : parameters) {
-            initialValues.put(parameter.getSimpleName(), new VarState(ValueSet.topForType(new TypeId(parameter.getType()), context), Set.of()));
-            parameterNames.add(parameter.getSimpleName());
+            VarId local = VarId.forLocal(parameter.getSimpleName());
+            initialValues.put(SSAVarId.forFresh(local),
+                new VarState(ValueSet.topForType(new TypeId(parameter.getType()), context), Set.of()));
+            parameterNames.add(local);
         }
 
         if (thisPointer != null) {
-            initialValues.put("this", new VarState(thisPointer, Set.of()));
-            parameterNames.add("this");
+            VarId thisLocal = VarId.forLocal("this");
+            initialValues.put(SSAVarId.forFresh(thisLocal), new VarState(thisPointer, Set.of()));
+            parameterNames.add(thisLocal);
         }
 
         this.states = new HashSet<>();
@@ -44,9 +48,9 @@ public class FlowEngine {
 
     public FlowEngine fork(ValueSet expectedTos) {
         return new FlowEngine(this.states.stream()
-                .map(EngineState::fork)
-                .filter(state -> state.assertTos(expectedTos))
-                .collect(Collectors.toCollection(HashSet::new)), this.context);
+            .map(EngineState::fork)
+            .filter(state -> state.assertTos(expectedTos))
+            .collect(Collectors.toCollection(HashSet::new)), this.context);
     }
 
     public void clear() {
@@ -99,7 +103,7 @@ public class FlowEngine {
 
     public void createLocal(String name, TypeId type) {
         for (EngineState state : this.states) {
-            state.createLocal(name, type);
+            state.createVariable(VarId.forLocal(name), type);
         }
         this.log("createLocal");
     }
@@ -120,14 +124,21 @@ public class FlowEngine {
 
     public void pushLocal(String name) {
         for (EngineState state : this.states) {
-            state.pushLocal(name);
+            state.pushVar(VarId.forLocal(name));
         }
         this.log("pushLocal");
+    }
+    
+    public void pushField(String name) {
+        for (EngineState state : this.states) {
+            state.pushField(name);
+        }
+        this.log("pushField");
     }
 
     public void storeLocal(String name) {
         for (EngineState state : this.states) {
-            state.storeLocal(name);
+            state.storeVar(VarId.forLocal(name));
         }
         this.log("storeLocal");
     }

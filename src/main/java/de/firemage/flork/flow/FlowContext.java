@@ -71,9 +71,7 @@ public class FlowContext {
     }
 
     public TypeId getType(String name) {
-        return this.model.filterChildren(t -> t instanceof CtType c && c.getQualifiedName().equals(name))
-                .map(t -> new TypeId(((CtType) t).getReference()))
-                .first();
+        return new TypeId(this.factory.Type().createReference(name));
     }
 
     public Stream<TypeId> getAllTypes() {

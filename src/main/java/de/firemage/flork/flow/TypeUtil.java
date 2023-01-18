@@ -68,4 +68,8 @@ public final class TypeUtil {
     public static boolean isTrueSubtype(TypeId subtype, TypeId supertype) {
         return !subtype.equals(supertype) && subtype.isSubtypeOf(supertype);
     }
+    
+    public static boolean areSiblingTypes(TypeId a, TypeId b) {
+        return !a.isSubtypeOf(b) && !b.isSubtypeOf(a);
+    }
 }

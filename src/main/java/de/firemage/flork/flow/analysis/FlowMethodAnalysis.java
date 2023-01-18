@@ -6,22 +6,26 @@ import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.FlowEngine;
 import de.firemage.flork.flow.engine.Relation;
+import de.firemage.flork.flow.engine.VarId;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.VoidValue;
+import spoon.reflect.code.CtAnnotationFieldAccess;
 import spoon.reflect.code.CtAssignment;
 import spoon.reflect.code.CtBinaryOperator;
 import spoon.reflect.code.CtBlock;
 import spoon.reflect.code.CtConstructorCall;
 import spoon.reflect.code.CtExpression;
+import spoon.reflect.code.CtFieldRead;
 import spoon.reflect.code.CtIf;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtLiteral;
 import spoon.reflect.code.CtLocalVariable;
 import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtStatement;
+import spoon.reflect.code.CtSuperAccess;
 import spoon.reflect.code.CtThisAccess;
 import spoon.reflect.code.CtTypeAccess;
 import spoon.reflect.code.CtUnaryOperator;
@@ -29,6 +33,7 @@ import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtExecutable;
+import spoon.reflect.declaration.CtField;
 import spoon.reflect.declaration.CtParameter;
 import spoon.reflect.declaration.CtVariable;
 import spoon.reflect.reference.CtLocalVariableReference;
@@ -40,7 +45,7 @@ import java.util.Optional;
 public class FlowMethodAnalysis implements MethodAnalysis {
     private final FlowContext context;
     private final CachedMethod method;
-    private final List<String> parameterNames;
+    private final List<VarId> parameterNames;
     private final List<MethodExitState> returnStates;
     private final boolean effectivelyVoid;
 
@@ -55,13 +60,12 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         Optional<ObjectValueSet> thisPointer = this.method.getThisType().map(t -> ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, t, context));
 
         if (thisPointer.isPresent()) {
-            parameterNames.add("this"); // this is the first parameter
+            parameterNames.add(VarId.forLocal("this")); // this is the first parameter
         }
 
         // Other parameters
-
         for (CtParameter<?> parameter : executable.getParameters()) {
-            parameterNames.add(parameter.getSimpleName());
+            parameterNames.add(VarId.forLocal(parameter.getSimpleName()));
         }
 
         this.context.increaseIndentation();
@@ -102,7 +106,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     @Override
-    public List<String> getOrderedParameterNames() {
+    public List<VarId> getOrderedParameterNames() {
         return this.parameterNames;
     }
 
@@ -222,13 +226,14 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeRead(CtVariableRead<?> read, FlowEngine engine) {
-        CtVariable<?> variable = read.getVariable().getDeclaration();
-        if (variable instanceof CtLocalVariable<?> local) {
-            engine.pushLocal(local.getSimpleName());
-        } else if (variable instanceof CtParameter<?> parameter) {
-            engine.pushLocal(parameter.getSimpleName());
+        if (read instanceof CtFieldRead<?> fieldRead) {
+            analyzeExpression(fieldRead.getTarget(), engine);
+            engine.pushField(fieldRead.getVariable().getSimpleName());
+        } else if (read instanceof CtSuperAccess<?> || read instanceof CtAnnotationFieldAccess<?>) {
+            throw new UnsupportedOperationException(read.getClass().getName());
         } else {
-            throw new UnsupportedOperationException(read.getVariable().getDeclaration().getClass().getName());
+            // Local variable read
+            engine.pushLocal(read.getVariable().getSimpleName());
         }
     }
 
@@ -281,6 +286,9 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         }
         if (calledMethod.isStatic()) {
             engine.callStatic(calledMethod);
+        } else if (calledMethod.isConstructor()) {
+            // Super call
+            engine.callConstructor(calledMethod);
         } else {
             engine.callVirtual(calledMethod);
         }

@@ -1,6 +1,6 @@
 package de.firemage.flork.flow.engine;
 
-public record VarRelation(String rhs, Relation relation) {
+public record VarRelation(SSAVarId rhs, Relation relation) {
 
     @Override
     public String toString() {

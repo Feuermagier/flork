@@ -4,10 +4,13 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.TypeUtil;
+import de.firemage.flork.flow.Util;
 import de.firemage.flork.flow.engine.Relation;
+
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -20,59 +23,74 @@ public final class ObjectValueSet extends ValueSet {
     private final TypeId supertype;
     private final Set<TypeId> lowerLimitingTypes;
     private final boolean exact;
+    private final Map<String, ValueSet> fields;
 
     public ObjectValueSet(Nullness nullness, TypeId supertype, Set<TypeId> lowerLimitingTypes, FlowContext context) {
+        this(nullness, supertype, lowerLimitingTypes, Map.of(), context);
+    }
+
+    public ObjectValueSet(Nullness nullness, TypeId supertype, Set<TypeId> lowerLimitingTypes,
+                          Map<String, ValueSet> fields, FlowContext context) {
         this.nullness = nullness;
         this.supertype = supertype;
         this.lowerLimitingTypes = lowerLimitingTypes;
         this.context = context;
         this.exact = supertype == null || lowerLimitingTypes.contains(supertype);
+        this.fields = fields;
     }
 
     public ObjectValueSet(ObjectValueSet other) {
-        this(other.nullness, other.supertype, new HashSet<>(other.lowerLimitingTypes), other.context);
+        this(other.nullness, other.supertype, new HashSet<>(other.lowerLimitingTypes), new HashMap<>(other.fields),
+            other.context);
     }
 
     public static ObjectValueSet getNullSet(FlowContext context) {
         if (nullSet == null) {
-            nullSet = ObjectValueSet.forExactType(Nullness.NULL, new TypeId(context.getFactory().Type().NULL_TYPE), context);
+            nullSet =
+                ObjectValueSet.forExactType(Nullness.NULL, new TypeId(context.getFactory().Type().NULL_TYPE), context);
         }
         return nullSet;
     }
 
     public static ObjectValueSet forExactType(Nullness nullness, TypeId type, FlowContext context) {
-        return new ObjectValueSet(nullness, type, Set.of(type), context);
+        return new ObjectValueSet(nullness, type, Set.of(type), Map.of(), context);
     }
 
     public static ObjectValueSet forUnconstrainedType(Nullness nullness, TypeId type, FlowContext context) {
-        return new ObjectValueSet(nullness, type, Set.of(), context);
+        return new ObjectValueSet(nullness, type, Set.of(), Map.of(), context);
     }
 
     public static ObjectValueSet bottom(FlowContext context) {
-        return new ObjectValueSet(Nullness.BOTTOM, null, Set.of(), context);
+        return new ObjectValueSet(Nullness.BOTTOM, null, Set.of(), Map.of(), context);
     }
 
     private static boolean typesMatch(ObjectValueSet a, ObjectValueSet b) {
         return a.supertype.equals(b.supertype);
     }
 
-    private static Set<TypeId> mergeLowerBounds(Set<TypeId> a, Set<TypeId> b) {
-        return a.stream().map(type -> {
-            for (TypeId other : b) {
-                if (type.isSubtypeOf(other)) {
-                    return type;
-                } else if (other.isSubtypeOf(type)) {
-                    return other;
+    private static Set<TypeId> mergeLowerBounds(TypeId aRoot, Set<TypeId> a, TypeId bRoot, Set<TypeId> b) {
+        return Stream.concat(
+            a.stream().map(type -> {
+                for (TypeId other : b) {
+                    if (type.isSubtypeOf(other)) {
+                        return type;
+                    } else if (other.isSubtypeOf(type)) {
+                        return other;
+                    }
                 }
-            }
-            return null;
-        }).filter(Objects::nonNull).collect(Collectors.toSet());
+                return null;
+            }).filter(Objects::nonNull),
+            Stream.concat(
+                // Types for which the respective other set does not make any statement
+                a.stream().filter(t -> TypeUtil.areSiblingTypes(bRoot, t)),
+                b.stream().filter(t -> TypeUtil.areSiblingTypes(aRoot, t)))
+        ).collect(Collectors.toSet());
     }
 
     private static Set<TypeId> intersectLowerBounds(Set<TypeId> a, Set<TypeId> b) {
         return Stream.concat(
-                a.stream().map(type -> b.stream().filter(type::isSubtypeOf).findAny().orElse(type)),
-                b.stream().map(type -> a.stream().filter(type::isSubtypeOf).findAny().orElse(type))
+            a.stream().map(type -> b.stream().filter(type::isSubtypeOf).findAny().orElse(type)),
+            b.stream().map(type -> a.stream().filter(type::isSubtypeOf).findAny().orElse(type))
         ).collect(Collectors.toSet());
     }
 
@@ -84,6 +102,14 @@ public final class ObjectValueSet extends ValueSet {
         return this.exact;
     }
 
+    public ValueSet getFieldValue(String name) {
+        return this.fields.get(name);
+    }
+    
+    public TypeId getFieldType(String name) {
+        return new TypeId(this.supertype.type().getDeclaredField(name).getType());
+    }
+
     @Override
     public ValueSet merge(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
@@ -93,8 +119,10 @@ public final class ObjectValueSet extends ValueSet {
             return this;
         } else {
             var resultType = TypeUtil.findLowestCommonSupertype(this.supertype, other.supertype, this.context);
-            var resultBounds = mergeLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes);
-            return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultBounds, this.context);
+            var resultBounds =
+                mergeLowerBounds(this.supertype, this.lowerLimitingTypes, other.supertype, other.lowerLimitingTypes);
+            return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultBounds,
+                Util.mergeMaps(this.fields, other.fields, ValueSet::merge), this.context);
         }
     }
 
@@ -107,7 +135,12 @@ public final class ObjectValueSet extends ValueSet {
             return this;
         } else if (this.exact && other.exact) {
             if (typesMatch(this, other)) {
-                return new ObjectValueSet(this.nullness.merge(other.nullness), this.supertype, this.lowerLimitingTypes, this.context);
+                var mergedFields = Util.mergeMapsFailIfNull(this.fields, other.fields, ValueSet::tryMergeExact);
+                if (mergedFields == null) {
+                    return null;
+                }
+                return new ObjectValueSet(this.nullness.merge(other.nullness), this.supertype, this.lowerLimitingTypes,
+                    mergedFields, this.context);
             } else {
                 return null;
             }
@@ -128,20 +161,22 @@ public final class ObjectValueSet extends ValueSet {
         if (this.nullness.intersect(other.nullness) == Nullness.BOTTOM) {
             return ObjectValueSet.bottom(this.context);
         } else if (other.supertype.isSubtypeOf(this.supertype)
-                && this.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(other.supertype, t))) {
+            && this.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(other.supertype, t))) {
             return new ObjectValueSet(
-                    this.nullness.intersect(other.nullness),
-                    other.supertype,
-                    intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                    this.context
+                this.nullness.intersect(other.nullness),
+                other.supertype,
+                intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
+                Util.mergeMaps(this.fields, other.fields, ValueSet::intersect),
+                this.context
             );
         } else if (this.supertype.isSubtypeOf(other.supertype)
-                && other.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(this.supertype, t))) {
+            && other.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(this.supertype, t))) {
             return new ObjectValueSet(
-                    this.nullness.intersect(other.nullness),
-                    this.supertype,
-                    intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                    this.context
+                this.nullness.intersect(other.nullness),
+                this.supertype,
+                intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
+                Util.mergeMaps(this.fields, other.fields, ValueSet::intersect),
+                this.context
             );
         } else {
             return ObjectValueSet.bottom(this.context);
@@ -158,8 +193,9 @@ public final class ObjectValueSet extends ValueSet {
         }
 
         return this.nullness.isSupersetOf(other.nullness)
-                && other.supertype.isSubtypeOf(this.supertype)
-                && this.lowerLimitingTypes.stream().noneMatch(t -> other.supertype.isSubtypeOf(t) && !t.equals(other.supertype));
+            && other.supertype.isSubtypeOf(this.supertype)
+            && this.lowerLimitingTypes.stream()
+            .noneMatch(t -> other.supertype.isSubtypeOf(t) && !t.equals(other.supertype));
     }
 
     @Override
@@ -184,8 +220,7 @@ public final class ObjectValueSet extends ValueSet {
         if (relation == Relation.EQUAL) {
             return this.intersect(other);
         } else if (relation == Relation.NOT_EQUAL) {
-            if (this.nullness == Nullness.NON_NULL && other.nullness == Nullness.NULL
-                    || this.nullness == Nullness.NULL && other.nullness == Nullness.NON_NULL) {
+            if (this.nullness == Nullness.NULL && other.nullness == Nullness.NULL) {
                 return ObjectValueSet.bottom(this.context);
             } else {
                 return this;
@@ -201,8 +236,8 @@ public final class ObjectValueSet extends ValueSet {
         if (o == null || getClass() != o.getClass()) return false;
         ObjectValueSet that = (ObjectValueSet) o;
         return this.lowerLimitingTypes.equals(that.lowerLimitingTypes)
-                && nullness == that.nullness
-                && Objects.equals(supertype, that.supertype);
+            && nullness == that.nullness
+            && Objects.equals(supertype, that.supertype);
     }
 
     @Override
@@ -212,6 +247,10 @@ public final class ObjectValueSet extends ValueSet {
 
     @Override
     public String toString() {
+        if (this.supertype == null) {
+            return "bot";
+        }
+
         String result = switch (this.nullness) {
             case NULL -> "null";
             case NON_NULL -> "non-null";
@@ -220,7 +259,8 @@ public final class ObjectValueSet extends ValueSet {
         };
         result += "/" + (this.isExact() ? "=" : "<=") + this.supertype.getName();
         if (!this.isExact() && !this.lowerLimitingTypes.isEmpty()) {
-            result += "," + this.lowerLimitingTypes.stream().map(t -> ">=" + t.getName()).collect(Collectors.joining(","));
+            result +=
+                "," + this.lowerLimitingTypes.stream().map(t -> ">=" + t.getName()).collect(Collectors.joining(","));
         }
         return result;
     }
