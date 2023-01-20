@@ -1,5 +1,7 @@
 package de.firemage.flork.flow.engine;
 
+import java.util.Objects;
+
 public class SSAVarId {
     private final VarId varId;
     private final int index;
@@ -27,6 +29,19 @@ public class SSAVarId {
     
     public boolean isInitial() {
         return this.index == 0;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        SSAVarId ssaVarId = (SSAVarId) o;
+        return index == ssaVarId.index && varId.equals(ssaVarId.varId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(varId, index);
     }
 
     @Override

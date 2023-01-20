@@ -39,12 +39,18 @@ public class EngineState {
     // Maps VarIds to their live SSAVarId
     private final Map<VarId, SSAVarId> liveVariables;
 
-    public EngineState(Map<SSAVarId, VarState> varsState, Set<VarId> parameters, FlowContext context) {
+    public EngineState(Map<VarId, VarState> initialValues, Set<VarId> parameters, FlowContext context) {
         this.context = context;
-        this.varsState = varsState;
         this.parameters = parameters;
-        this.stack = new ValueStack();
+        
+        this.varsState = new HashMap<>(parameters.size());
         this.liveVariables = new HashMap<>(parameters.size());
+        for (var value : initialValues.entrySet()) {
+            SSAVarId id = SSAVarId.forFresh(value.getKey());
+            this.varsState.put(id, value.getValue());
+            this.liveVariables.put(value.getKey(), id);
+        }
+        this.stack = new ValueStack();
     }
 
     public EngineState(EngineState other) {
@@ -94,7 +100,7 @@ public class EngineState {
     }
 
     public void pushField(String field) {
-        StackValue tos = this.stack.peek();
+        StackValue tos = this.stack.pop();
         if (tos instanceof LocalRefStackValue ref) {
             VarId path = ref.local().varId().resolveField(field);
             this.createVarIfMissing(path);
@@ -111,8 +117,22 @@ public class EngineState {
     public void storeVar(VarId variable) {
         SSAVarId ssa = this.getNextVar(variable);
         this.varsState.put(ssa, new VarState(getValueOf(this.stack.peek()), Set.of()));
+        this.liveVariables.put(ssa.varId(), ssa);
         if (this.stack.peek() instanceof LocalRefStackValue ref) {
             this.addRelationAndExtendTransitive(ssa, new VarRelation(ref.local(), Relation.EQUAL));
+        }
+    }
+    
+    public void storeField(String name) {
+        var tos = this.stack.pop();
+        if (tos instanceof LocalRefStackValue fieldRef) {
+            SSAVarId ssa = this.getNextVar(fieldRef.local().varId().resolveField(name));
+            this.varsState.put(ssa, new VarState(getValueOf(this.stack.peek()), Set.of()));
+            if (this.stack.peek() instanceof LocalRefStackValue ref) {
+                this.addRelationAndExtendTransitive(ssa, new VarRelation(ref.local(), Relation.EQUAL));
+            }
+        } else {
+            //TODO parse assignments to fields of non-locals (e.g. getValue().x = 3)
         }
     }
 
@@ -473,7 +493,7 @@ public class EngineState {
         VarState local =
             this.varsState.compute(lhs, (k, v) -> addRelationAndTrimValue(v, relation.rhs(), relation.relation()));
         //this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
-
+        
         if (relation.relation() == Relation.NOT_EQUAL) {
             // != is not transitive, but symmetric
             this.varsState.compute(relation.rhs(), (k, v) -> addRelationAndTrimValue(v, lhs, Relation.NOT_EQUAL));

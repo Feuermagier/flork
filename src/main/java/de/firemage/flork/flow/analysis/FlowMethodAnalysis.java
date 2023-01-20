@@ -19,6 +19,7 @@ import spoon.reflect.code.CtBlock;
 import spoon.reflect.code.CtConstructorCall;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtFieldRead;
+import spoon.reflect.code.CtFieldWrite;
 import spoon.reflect.code.CtIf;
 import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtLiteral;
@@ -199,14 +200,11 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         CtExpression<?> rhs = assignment.getAssignment();
         analyzeExpression(rhs, engine);
 
-        if (lhs instanceof CtVariableWrite<?> write) {
-            if (write.getVariable() instanceof CtLocalVariableReference<?> local) {
-                engine.storeLocal(local.getSimpleName());
-            } else if (write.getVariable() instanceof CtParameterReference<?> parameter) {
-                engine.storeLocal(parameter.getSimpleName());
-            } else {
-                throw new UnsupportedOperationException(write.getVariable().getClass().getSimpleName());
-            }
+        if (lhs instanceof CtFieldWrite<?> write) {
+            this.analyzeExpression(write.getTarget(), engine);
+            engine.storeField(write.getVariable().getSimpleName());
+        } else if (lhs instanceof CtVariableWrite<?> write) {
+            engine.storeLocal(write.getVariable().getSimpleName());
         } else {
             throw new UnsupportedOperationException(lhs.getClass().getName());
         }

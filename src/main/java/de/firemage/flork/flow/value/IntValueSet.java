@@ -222,7 +222,7 @@ public final class IntValueSet extends ValueSet {
             case GREATER_THAN -> this.splitAtAbove(MathUtil.incSaturating(other.min()));
             case GREATER_THAN_EQUAL -> this.splitAtAbove(other.min());
             case EQUAL -> this.intersect(other);
-            case NOT_EQUAL -> this;
+            case NOT_EQUAL -> other.isSingle() ? this.removeSingle(other.intervals.get(0).min) : this;
         };
     }
 
@@ -236,6 +236,10 @@ public final class IntValueSet extends ValueSet {
         return this.intervals.size() == 1
             && this.intervals.get(0).min == value
             && this.intervals.get(0).max == value;
+    }
+    
+    public boolean isSingle() {
+        return this.intervals.size() == 1 && this.intervals.get(0).min == this.intervals.get(0).max;
     }
 
     public long min() {
@@ -257,37 +261,56 @@ public final class IntValueSet extends ValueSet {
     public IntValueSet splitAtAbove(long min) {
         if (min <= this.min()) {
             return this;
-        } else {
-            List<IntInterval> result = new ArrayList<>(this.intervals.size());
-            for (IntInterval interval : this.intervals) {
-                if (interval.min >= min) {
-                    result.add(interval);
-                } else if (interval.max >= min) {
-                    result.add(new IntInterval(min, interval.max));
-                } else {
-                    continue;
-                }
-            }
-            return new IntValueSet(this.bits, result);
         }
+
+        List<IntInterval> result = new ArrayList<>(this.intervals.size());
+        for (IntInterval interval : this.intervals) {
+            if (interval.min >= min) {
+                result.add(interval);
+            } else if (interval.max >= min) {
+                result.add(new IntInterval(min, interval.max));
+            }
+        }
+        return new IntValueSet(this.bits, result);
     }
 
     public IntValueSet splitAtBelow(long max) {
         if (max >= this.max()) {
             return this;
-        } else {
-            List<IntInterval> result = new ArrayList<>(this.intervals.size());
-            for (IntInterval interval : this.intervals) {
-                if (interval.max <= max) {
-                    result.add(interval);
-                } else if (interval.min <= max) {
-                    result.add(new IntInterval(interval.min, max));
-                } else {
-                    break;
-                }
-            }
-            return new IntValueSet(this.bits, result);
         }
+        
+        List<IntInterval> result = new ArrayList<>(this.intervals.size());
+        for (IntInterval interval : this.intervals) {
+            if (interval.max <= max) {
+                result.add(interval);
+            } else if (interval.min <= max) {
+                result.add(new IntInterval(interval.min, max));
+            } else {
+                break;
+            }
+        }
+        return new IntValueSet(this.bits, result);
+    }
+    
+    public IntValueSet removeSingle(long value) {
+        if (value < this.min() || value > this.max()) {
+            return this;
+        }
+
+        List<IntInterval> result = new ArrayList<>(this.intervals.size());
+        for (IntInterval interval : this.intervals) {
+            if (interval.min <= value && interval.max >= value) {
+                if (interval.min < value) {
+                    result.add(new IntInterval(interval.min, value - 1));
+                }
+                if (interval.max > value) {
+                    result.add(new IntInterval(value + 1, interval.max));
+                }
+            } else {
+                result.add(interval);
+            }
+        }
+        return new IntValueSet(this.bits, result);
     }
 
     public IntValueSet negate() {

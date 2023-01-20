@@ -22,18 +22,18 @@ public class FlowEngine {
     public FlowEngine(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
 
-        Map<SSAVarId, VarState> initialValues = new HashMap<>();
+        Map<VarId, VarState> initialValues = new HashMap<>();
         Set<VarId> parameterNames = new HashSet<>();
         for (CtParameter<?> parameter : parameters) {
             VarId local = VarId.forLocal(parameter.getSimpleName());
-            initialValues.put(SSAVarId.forFresh(local),
+            initialValues.put(local,
                 new VarState(ValueSet.topForType(new TypeId(parameter.getType()), context), Set.of()));
             parameterNames.add(local);
         }
 
         if (thisPointer != null) {
             VarId thisLocal = VarId.forLocal("this");
-            initialValues.put(SSAVarId.forFresh(thisLocal), new VarState(thisPointer, Set.of()));
+            initialValues.put(thisLocal, new VarState(thisPointer, Set.of()));
             parameterNames.add(thisLocal);
         }
 
@@ -142,7 +142,14 @@ public class FlowEngine {
         }
         this.log("storeLocal");
     }
-
+    
+    public void storeField(String name) {
+        for (EngineState state : this.states) {
+            state.storeField(name);
+        }
+        this.log("storeField");
+    }
+    
     public void pop() {
         for (EngineState state : this.states) {
             state.pop();
