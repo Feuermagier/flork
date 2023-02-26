@@ -88,7 +88,7 @@ public class EngineState {
     }
 
     public void pushValue(ValueSet value) {
-        this.stack.push(new ConcreteStackValue(value));
+        this.stack.push(new ConcreteStackValue(new VarState(value)));
     }
 
     public void pushThis() {
@@ -106,7 +106,7 @@ public class EngineState {
             this.createVarIfMissing(path);
             this.pushVar(path);
         } else if (tos instanceof ConcreteStackValue concrete) {
-            if (concrete.value() instanceof ObjectValueSet object) {
+            if (concrete.value().value() instanceof ObjectValueSet object) {
                 this.pushValue(ValueSet.topForType(object.getFieldType(field), this.context));
             } else {
                 throw new IllegalStateException();
@@ -391,7 +391,7 @@ public class EngineState {
         return this.call(method.getFixedCallAnalysis());
     }
 
-    private List<EngineState> call(MethodAnalysis method) {
+    private List<EngineState> call(VarId callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             return List.of(this);
         }
@@ -400,22 +400,44 @@ public class EngineState {
 
         exit:
         for (MethodExitState returnState : method.getReturnStates()) {
-            EngineState state = new EngineState(this);
-            Map<VarId, StackValue> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
+            EngineState state = this.fork();
+            Map<VarId, VarState> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
 
             var orderedParameters = method.getOrderedParameterNames();
 
             // Extract the parameters
             for (int i = orderedParameters.size() - 1; i >= 0; i--) {
                 var param = orderedParameters.get(i);
-                StackValue tos = state.stack.pop();
-                paramToArgument.put(param, tos);
+                paramToArgument.put(param, state.getStateOf(state.stack.pop()));
             }
 
-            // Check all parameters and add relations
+            // Extract fields
+            if (callee != null) {
+                for (SSAVarId varId : state.liveVariables.values()) {
+                    VarId relativeId = varId.varId().relativize(callee);
+                    if (relativeId != null) {
+                        paramToArgument.put(relativeId, state.varsState.get(varId));
+                    }
+                }
+            }
+
+            // Check initial state and add relations
+            for (var entry : returnState.initialState().entrySet()) {
+                var myState = paramToArgument.get(entry.getKey());
+                var methodState = entry.getValue();
+
+                ValueSet sharedValue = myState.value().intersect(methodState.value());
+                if (sharedValue.isEmpty()) {
+                    continue;
+                }
+
+                for (VarRelation relation : methodState.relations()) {
+                    if ()
+                }
+            }
             for (int i = orderedParameters.size() - 1; i >= 0; i--) {
                 var param = orderedParameters.get(i);
-                VarState paramState = returnState.parameters().get(param);
+                VarState paramState = returnState.initialState().get(param);
                 StackValue argument = paramToArgument.get(param);
                 ValueSet argumentValue = getValueOf(argument).intersect(paramState.value());
                 if (argumentValue.isEmpty()) {
@@ -461,10 +483,14 @@ public class EngineState {
     }
 
     private ValueSet getValueOf(StackValue value) {
+        return this.getStateOf(value).value();
+    }
+
+    private VarState getStateOf(StackValue value) {
         if (value instanceof ConcreteStackValue concrete) {
             return concrete.value();
         } else {
-            return this.varsState.get(((LocalRefStackValue) value).local()).value();
+            return this.varsState.get(((LocalRefStackValue) value).local());
         }
     }
 

@@ -13,7 +13,15 @@ public record VarId(VarId parent, String name) {
     public VarId resolveField(String field) {
         return new VarId(this, this.name + "." + field);
     }
-    
+
+    public VarId relativize(VarId parent) {
+        if (this.parent == null || !this.name.startsWith(parent.name)) {
+            return null;
+        }
+
+        return new VarId(parent, this.name.substring(parent.name.length()));
+    }
+
     @Override
     public String toString() {
         return this.name;
