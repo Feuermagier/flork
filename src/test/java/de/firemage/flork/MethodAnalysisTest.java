@@ -33,7 +33,5 @@ class MethodAnalysisTest {
             .findFirst().get();
         System.out.println(method);
         var result = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
-
-        System.out.println(result.getReturnStates().size() + " return states: " + result.getReturnStates());
     }
 }

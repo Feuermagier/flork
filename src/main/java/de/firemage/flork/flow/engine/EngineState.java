@@ -12,6 +12,7 @@ import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
+import spoon.reflect.declaration.CtParameter;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,43 +23,67 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * INVARIANT: Only the fields of this class are mutable. Everything else (VarStates, ValueSets, VarRelations, FieldIds, ...)
+ * are IMMUTABLE. This ensures that a shallow copy of the datastructures of this class (namely the maps, as well as the varIdCounter) CLONES
+ * the entire engine state.
+ */
 public class EngineState {
     private static final VarId THIS = VarId.forLocal("this");
 
-    private final FlowContext context;
+    final FlowContext context;
 
-    // The current state of all locals, including a local named "this" for the this-pointer
-    private final Map<SSAVarId, VarState> varsState;
+    // The current state of all values
+    // The mapping of entries may only change if we assert that a certain property holds (e.g. a condition is false 
+    // because we take the else-branch of an if statement)
+    // When normal program flow of the analyzed program overwrites a value, a new id needs to be created
+    // And a new value needs to be stored in this map
+    final List<VarState> varsState;
 
     // The current state of the stack
-    private final ValueStack stack;
+    final ValueStack stack;
+    // Maps each SSAVarId to its current value
+    final Map<SSAVarId, Integer> fieldValues;
+    // Store the current value of each field / local where we have any knowledge
+    final Map<FieldId, SSAVarId> liveFields;
+    // List of locals that are also parameters - immutable
+    private final Set<String> parameters;
 
-    // List of locals that are also parameters
-    private final Set<VarId> parameters;
-    
-    // Maps VarIds to their live SSAVarId
-    private final Map<VarId, SSAVarId> liveVariables;
-
-    public EngineState(Map<VarId, VarState> initialValues, Set<VarId> parameters, FlowContext context) {
+    public EngineState(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
-        this.parameters = parameters;
-        
-        this.varsState = new HashMap<>(parameters.size());
-        this.liveVariables = new HashMap<>(parameters.size());
-        for (var value : initialValues.entrySet()) {
-            SSAVarId id = SSAVarId.forFresh(value.getKey());
-            this.varsState.put(id, value.getValue());
-            this.liveVariables.put(value.getKey(), id);
+
+        this.parameters = new HashSet<>(parameters.size());
+        this.fieldValues = new HashMap<>(parameters.size() + 1);
+        this.liveFields = new HashMap<>(parameters.size() + 1);
+        this.varsState = new ArrayList<>(parameters.size() + 1);
+
+        int thisValue = this.varsState.size();
+        this.varsState.add(new VarState(thisPointer));
+        FieldId thisId = FieldId.forLocal("this");
+        SSAVarId thisSSA = SSAVarId.forFresh(thisId);
+        this.liveFields.put(thisId, thisSSA);
+        this.fieldValues.put(thisSSA, thisValue);
+
+        for (CtParameter<?> parameter : parameters) {
+            this.parameters.add(parameter.getSimpleName());
+            FieldId fieldId = FieldId.forLocal(parameter.getSimpleName());
+            SSAVarId ssa = SSAVarId.forFresh(fieldId);
+            this.liveFields.put(fieldId, ssa);
+            int valueId = this.varsState.size();
+            this.varsState.add(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context)));
+            this.fieldValues.put(ssa, valueId);
         }
+
         this.stack = new ValueStack();
     }
 
-    public EngineState(EngineState other) {
+    private EngineState(EngineState other) {
         this.context = other.context;
-        this.varsState = new HashMap<>(other.varsState);
+        this.varsState = new ArrayList<>(other.varsState);
         this.parameters = other.parameters;
         this.stack = new ValueStack(other.stack);
-        this.liveVariables = new HashMap<>(other.liveVariables);
+        this.liveFields = new HashMap<>(other.liveFields);
+        this.fieldValues = new HashMap<>(other.fieldValues);
     }
 
     public EngineState fork() {
@@ -68,72 +93,77 @@ public class EngineState {
     public Map<VarId, VarState> getParamStates() {
         // Remove relations with non-parameter locals
         Map<VarId, VarState> paramStates = new HashMap<>(this.parameters.size());
-        for (VarId param : this.parameters) {
-            VarState value = this.varsState.entrySet().stream()
-                .filter(e -> e.getKey().varId().equals(param) && e.getKey().isInitial())
-                .findAny()
-                .get()
-                .getValue();
-            paramStates.put(param, new VarState(value.value(), value
-                .relations()
-                .stream()
-                .filter(r -> this.parameters.contains(r.rhs()))
-                .collect(Collectors.toSet())));
+        for (var field : this.liveFields.entrySet()) {
+            if (!field.getValue().isInitial()) {
+                continue;
+            }
+            if (field.getKey().isLocal() && !this.parameters.contains(field.getKey().fieldName())) {
+                continue;
+            }
+            VarState state = this.varsState.get(this.fieldValues.get(field.getValue()));
+            //TODO add relations and fields
+            paramStates.put(this.buildVarId(field.getKey()), new VarState(state.value()));
         }
         return paramStates;
     }
 
-    public void createVariable(VarId name, TypeId type) {
-        this.varsState.put(SSAVarId.forFresh(name), new VarState(ValueSet.topForType(type, this.context), Set.of()));
+    public void createVariable(String name, TypeId type) {
+        VarState state = new VarState(ValueSet.topForType(type, this.context), Set.of());
+        int id = this.createNewVarEntry(state);
+        FieldId field = FieldId.forLocal(name);
+        SSAVarId ssa = SSAVarId.forFresh(field);
+        this.liveFields.put(field, ssa);
+        this.fieldValues.put(ssa, id);
     }
 
     public void pushValue(ValueSet value) {
-        this.stack.push(new ConcreteStackValue(new VarState(value)));
+        this.stack.push(this.createNewVarEntry(new VarState(value)));
     }
 
     public void pushThis() {
-        this.pushVar(THIS);
+        this.pushVar("this");
     }
 
-    public void pushVar(VarId variable) {
-        this.stack.push(new LocalRefStackValue(this.liveVariables.get(variable)));
+    public void pushVar(String variable) {
+        this.stack.push(this.fieldValues.get(this.liveFields.get(FieldId.forLocal(variable))));
     }
 
     public void pushField(String field) {
-        StackValue tos = this.stack.pop();
-        if (tos instanceof LocalRefStackValue ref) {
-            VarId path = ref.local().varId().resolveField(field);
-            this.createVarIfMissing(path);
-            this.pushVar(path);
-        } else if (tos instanceof ConcreteStackValue concrete) {
-            if (concrete.value().value() instanceof ObjectValueSet object) {
-                this.pushValue(ValueSet.topForType(object.getFieldType(field), this.context));
-            } else {
-                throw new IllegalStateException();
-            }
-        }
+        int parent = this.stack.pop();
+
+        // Parent cannot be null
+        VarState parentState = this.varsState.get(parent);
+        this.varsState.set(parent, new VarState(((ObjectValueSet) parentState.value()).asNonNull(),
+            parentState.relations()));
+
+        SSAVarId ssaId = this.liveFields.computeIfAbsent(new FieldId(parent, field), id -> {
+            ObjectValueSet parentObject = (ObjectValueSet) this.varsState.get(id.parent()).value();
+            ValueSet value = ValueSet.topForType(parentObject.getFieldType(id.fieldName()), this.context);
+            SSAVarId ssa = SSAVarId.forFresh(id);
+            this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(value)));
+            return ssa;
+        });
+        this.stack.push(this.fieldValues.get(ssaId));
     }
 
-    public void storeVar(VarId variable) {
-        SSAVarId ssa = this.getNextVar(variable);
-        this.varsState.put(ssa, new VarState(getValueOf(this.stack.peek()), Set.of()));
-        this.liveVariables.put(ssa.varId(), ssa);
-        if (this.stack.peek() instanceof LocalRefStackValue ref) {
-            this.addRelationAndExtendTransitive(ssa, new VarRelation(ref.local(), Relation.EQUAL));
-        }
+    public void storeVar(String variable) {
+        FieldId fieldId = FieldId.forLocal(variable);
+        SSAVarId ssa = this.liveFields.get(fieldId).next();
+        this.liveFields.put(fieldId, ssa);
+        this.fieldValues.put(ssa, this.stack.peek());
     }
-    
+
     public void storeField(String name) {
-        var tos = this.stack.pop();
-        if (tos instanceof LocalRefStackValue fieldRef) {
-            SSAVarId ssa = this.getNextVar(fieldRef.local().varId().resolveField(name));
-            this.varsState.put(ssa, new VarState(getValueOf(this.stack.peek()), Set.of()));
-            if (this.stack.peek() instanceof LocalRefStackValue ref) {
-                this.addRelationAndExtendTransitive(ssa, new VarRelation(ref.local(), Relation.EQUAL));
-            }
-        } else {
-            //TODO parse assignments to fields of non-locals (e.g. getValue().x = 3)
-        }
+        int objValue = this.stack.pop();
+        FieldId fieldId = FieldId.forField(objValue, name);
+        SSAVarId ssa = this.liveFields.computeIfAbsent(fieldId, SSAVarId::forFresh).next();
+        this.liveFields.put(fieldId, ssa);
+        this.fieldValues.put(ssa, this.stack.peek());
+
+        // We know that the object cannot be null, or an exception would have been thrown
+        VarState oldState = this.varsState.get(objValue);
+        this.varsState.set(objValue, new VarState(((ObjectValueSet) oldState.value()).asNonNull(),
+            oldState.relations()));
     }
 
     public void pop() {
@@ -141,7 +171,7 @@ public class EngineState {
     }
 
     public ValueSet peek() {
-        return getValueOf(this.stack.peek());
+        return this.varsState.get(this.stack.peek()).value();
     }
 
     public ValueSet peekOrVoid() {
@@ -161,69 +191,65 @@ public class EngineState {
     }
 
     public void negate() {
-        StackValue tos = this.stack.pop();
-        IntValueSet tosValue = (IntValueSet) getValueOf(tos);
-        this.stack.push(new ConcreteStackValue(tosValue.negate()));
+        IntValueSet tos = (IntValueSet) this.varsState.get(this.stack.pop()).value();
+        this.stack.push(this.createNewVarEntry(new VarState(tos.negate())));
     }
 
     public void add() {
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
-        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
+        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
         if (rhsValue.isSingle(0)) {
             this.stack.push(lhs);
         } else if (lhsValue.isSingle(0)) {
             this.stack.push(rhs);
         } else {
-            this.stack.push(new ConcreteStackValue(lhsValue.add(rhsValue)));
+            this.stack.push(this.createNewVarEntry(new VarState(lhsValue.add(rhsValue))));
         }
     }
 
     public void subtract() {
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
-        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
+        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
         if (rhsValue.isSingle(0)) {
             this.stack.push(lhs);
-        } else if (lhsValue.isSingle(0)) {
-            this.stack.push(rhs);
         } else {
-            this.stack.push(new ConcreteStackValue(lhsValue.subtract(rhsValue)));
+            this.stack.push(this.createNewVarEntry(new VarState(lhsValue.subtract(rhsValue))));
         }
     }
 
     public void multiply() {
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
-        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
+        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
         if (rhsValue.isSingle(1)) {
             this.stack.push(lhs);
         } else if (lhsValue.isSingle(1)) {
             this.stack.push(rhs);
         } else {
-            this.stack.push(new ConcreteStackValue(lhsValue.multiply(rhsValue)));
+            this.stack.push(this.createNewVarEntry(new VarState(lhsValue.multiply(rhsValue))));
         }
     }
 
     public void divide() {
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) getValueOf(rhs);
-        IntValueSet lhsValue = (IntValueSet) getValueOf(lhs);
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
+        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
+        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
         if (rhsValue.isSingle(1)) {
             this.stack.push(lhs);
         } else {
-            this.stack.push(new ConcreteStackValue(lhsValue.divide(rhsValue)));
+            this.stack.push(this.createNewVarEntry(new VarState(lhsValue.divide(rhsValue))));
         }
     }
 
     public void not() {
-        StackValue tos = this.stack.pop();
-        BooleanValueSet tosValue = (BooleanValueSet) getValueOf(tos);
-        this.stack.push(new ConcreteStackValue(tosValue.not()));
+        BooleanValueSet tosValue = (BooleanValueSet) this.varsState.get(this.stack.pop()).value();
+        this.stack.push(this.createNewVarEntry(new VarState(tosValue.not())));
     }
 
     // This is not short circuit!
@@ -231,35 +257,35 @@ public class EngineState {
         List<EngineState> additionalPaths = new ArrayList<>();
         additionalPaths.add(this);
 
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
 
-        BooleanValueSet lhsValue = (BooleanValueSet) getValueOf(lhs);
-        BooleanValueSet rhsValue = (BooleanValueSet) getValueOf(rhs);
+        BooleanValueSet lhsValue = (BooleanValueSet) this.varsState.get(lhs).value();
+        BooleanValueSet rhsValue = (BooleanValueSet) this.varsState.get(rhs).value();
         if (lhsValue.isFalse()) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+            this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
         } else if (lhsValue.isBottom()) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.bottom()));
+            this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.bottom())));
         } else {
             if (lhsValue.isTop()) {
                 // Create a second path for lhs == false
                 EngineState secondPath = this.fork();
-                secondPath.assertStackValue(lhs, BooleanValueSet.of(false));
-                secondPath.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                secondPath.assertVarValue(lhs, BooleanValueSet.of(false));
+                secondPath.stack.push(secondPath.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
                 additionalPaths.add(secondPath);
             }
-            this.assertStackValue(lhs, BooleanValueSet.of(true));
+            this.assertVarValue(lhs, BooleanValueSet.of(true));
 
             if (rhsValue.isTop()) {
                 // Create a second path for rhs == false
                 EngineState secondPath = this.fork();
-                secondPath.assertStackValue(rhs, BooleanValueSet.of(false));
-                secondPath.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                secondPath.assertVarValue(rhs, BooleanValueSet.of(false));
+                secondPath.stack.push(secondPath.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
                 additionalPaths.add(secondPath);
 
                 // This path is for rhs == true
-                this.assertStackValue(rhs, BooleanValueSet.of(true));
-                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                this.assertVarValue(rhs, BooleanValueSet.of(true));
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
             } else {
                 this.stack.push(rhs);
             }
@@ -273,36 +299,36 @@ public class EngineState {
         List<EngineState> additionalPaths = new ArrayList<>();
         additionalPaths.add(this);
 
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
 
-        BooleanValueSet lhsValue = (BooleanValueSet) getValueOf(lhs);
-        BooleanValueSet rhsValue = (BooleanValueSet) getValueOf(rhs);
+        BooleanValueSet lhsValue = (BooleanValueSet) this.varsState.get(lhs).value();
+        BooleanValueSet rhsValue = (BooleanValueSet) this.varsState.get(rhs).value();
         if (lhsValue.isTrue()) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+            this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
         } else if (lhsValue.isBottom()) {
-            this.stack.push(new ConcreteStackValue(BooleanValueSet.bottom()));
+            this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.bottom())));
         } else {
 
             if (lhsValue.isTop()) {
                 // Create a second path for lhs == true
                 EngineState secondPath = this.fork();
-                secondPath.assertStackValue(lhs, BooleanValueSet.of(true));
-                secondPath.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                secondPath.assertVarValue(lhs, BooleanValueSet.of(true));
+                secondPath.stack.push(secondPath.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
                 additionalPaths.add(secondPath);
             }
-            this.assertStackValue(lhs, BooleanValueSet.of(false));
+            this.assertVarValue(lhs, BooleanValueSet.of(false));
 
             if (rhsValue.isTop()) {
                 // Create a second path for rhs == true
                 EngineState secondPath = this.fork();
-                secondPath.assertStackValue(rhs, BooleanValueSet.of(true));
-                secondPath.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                secondPath.assertVarValue(rhs, BooleanValueSet.of(true));
+                secondPath.stack.push(secondPath.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
                 additionalPaths.add(secondPath);
 
                 // This path is for rhs == false
-                this.assertStackValue(rhs, BooleanValueSet.of(false));
-                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                this.assertVarValue(rhs, BooleanValueSet.of(false));
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
             } else {
                 this.stack.push(rhs);
             }
@@ -312,53 +338,45 @@ public class EngineState {
     }
 
     public List<EngineState> compareOp(Relation relation) {
-        StackValue rhs = this.stack.pop();
-        StackValue lhs = this.stack.pop();
+        int rhs = this.stack.pop();
+        int lhs = this.stack.pop();
 
         // Query known relations first
-        if (lhs instanceof LocalRefStackValue lhsRef && rhs instanceof LocalRefStackValue rhsRef) {
-            VarState lhsState = this.varsState.get(lhsRef.local());
-            switch (checkRelation(lhsRef.local(), lhsState, rhsRef.local(), relation)) {
-                case ALWAYS -> {
-                    this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
-                    return List.of(this);
-                }
-                case NEVER -> {
-                    this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
-                    return List.of(this);
-                }
-                case SOMETIMES -> {
-                }
+        switch (checkRelation(lhs, rhs, relation)) {
+            case ALWAYS -> {
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
+                return List.of(this);
+            }
+            case NEVER -> {
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
+                return List.of(this);
+            }
+            case SOMETIMES -> {
             }
         }
 
-        ValueSet lhsValue = getValueOf(lhs);
-        ValueSet rhsValue = getValueOf(rhs);
+        VarState lhsValue = this.varsState.get(lhs);
+        VarState rhsValue = this.varsState.get(rhs);
 
-        return switch (lhsValue.fulfillsRelation(rhsValue, relation)) {
+        return switch (lhsValue.value().fulfillsRelation(rhsValue.value(), relation)) {
             case ALWAYS -> {
-                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
                 this.tryAssertRelation(lhs, rhs, relation);
                 yield List.of(this);
             }
             case NEVER -> {
-                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
                 this.tryAssertRelation(lhs, rhs, relation.negate());
                 yield List.of(this);
             }
             case SOMETIMES -> {
                 // "this" is the true path, other is the false path
                 EngineState notFulfilledState = this.fork();
-                notFulfilledState.stack.push(new ConcreteStackValue(BooleanValueSet.of(false)));
-                notFulfilledState.assertStackValue(lhs,
-                    lhsValue.removeNotFulfillingValues(rhsValue, relation.negate()));
-                notFulfilledState.assertStackValue(rhs,
-                    rhsValue.removeNotFulfillingValues(lhsValue, relation.negate().invert()));
+                notFulfilledState.stack.push(
+                    notFulfilledState.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
                 notFulfilledState.tryAssertRelation(lhs, rhs, relation.negate());
 
-                this.stack.push(new ConcreteStackValue(BooleanValueSet.of(true)));
-                this.assertStackValue(lhs, lhsValue.removeNotFulfillingValues(rhsValue, relation));
-                this.assertStackValue(rhs, rhsValue.removeNotFulfillingValues(lhsValue, relation.invert()));
+                this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
                 this.tryAssertRelation(lhs, rhs, relation);
                 yield List.of(this, notFulfilledState);
             }
@@ -366,163 +384,121 @@ public class EngineState {
     }
 
     public List<EngineState> callStatic(CachedMethod method) {
-        return this.call(method.getFixedCallAnalysis());
+        return this.call(-1, method.getFixedCallAnalysis());
     }
 
     public List<EngineState> callVirtual(CachedMethod method) {
-        int thisOffset = method.getExecutable().getParameters().size();
-        if (((ObjectValueSet) this.getValueOf(this.stack.peek(thisOffset))).isExact()) {
-            return this.call(method.getFixedCallAnalysis());
+        int thisVar = this.stack.peek(method.getExecutable().getParameters().size());
+        if (((ObjectValueSet) this.varsState.get(thisVar).value()).isExact()) {
+            return this.call(-1, method.getFixedCallAnalysis());
         } else {
             List<EngineState> resultStates = new ArrayList<>();
             for (MethodAnalysis analysis : method.getVirtualCallAnalyses()) {
                 EngineState state = this.fork();
                 ObjectValueSet requiredThis =
-                    ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, analysis.getMethod().getThisType().get(),
-                        this.context);
-                state.stack.overwrite(assertStackValue(state.stack.peek(thisOffset), requiredThis), thisOffset);
-                resultStates.addAll(state.call(analysis));
+                    ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL,
+                        analysis.getMethod().getThisType().orElseThrow(), this.context);
+
+                state.assertVarValue(thisVar, requiredThis);
+                resultStates.addAll(state.call(thisVar, analysis));
             }
             return resultStates;
         }
     }
 
     public List<EngineState> callConstructor(CachedMethod method) {
-        return this.call(method.getFixedCallAnalysis());
+        return this.call(-1, method.getFixedCallAnalysis());
     }
 
-    private List<EngineState> call(VarId callee, MethodAnalysis method) {
+    // Recursively creates a mapping between (string-based) field paths and values
+    private void collectFieldValues(VarId parent, int id, Map<VarId, Integer> knownValues) {
+        for (var fieldId : this.fieldValues.entrySet()) {
+            if (fieldId.getKey().fieldId().parent() == id) {
+                VarId path = parent.resolveField(fieldId.getKey().fieldId().fieldName());
+                knownValues.put(path, fieldId.getValue());
+                this.collectFieldValues(path, fieldId.getValue(), knownValues);
+            }
+        }
+    }
+
+    private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
+            // TODO reset all fields that may have been mutated
             return List.of(this);
         }
 
+        Map<VarId, Integer> knownValues = new HashMap<>(method.getOrderedParameterNames().size());
+
+        // Extract the parameters
+        var orderedParameters = method.getOrderedParameterNames();
+        for (int i = orderedParameters.size() - 1; i >= 0; i--) {
+            var param = orderedParameters.get(i);
+            knownValues.put(param, this.stack.pop());
+        }
+
+        if (callee >= 0) {
+            // Map known fields
+            this.collectFieldValues(THIS, callee, knownValues);
+        }
+
         List<EngineState> result = new ArrayList<>();
-
-        exit:
         for (MethodExitState returnState : method.getReturnStates()) {
-            EngineState state = this.fork();
-            Map<VarId, VarState> paramToArgument = new HashMap<>(method.getOrderedParameterNames().size());
-
-            var orderedParameters = method.getOrderedParameterNames();
-
-            // Extract the parameters
-            for (int i = orderedParameters.size() - 1; i >= 0; i--) {
-                var param = orderedParameters.get(i);
-                paramToArgument.put(param, state.getStateOf(state.stack.pop()));
+            EngineState newState = new CallMapper(this, returnState, knownValues).map();
+            if (newState != null) {
+                result.add(newState);
             }
-
-            // Extract fields
-            if (callee != null) {
-                for (SSAVarId varId : state.liveVariables.values()) {
-                    VarId relativeId = varId.varId().relativize(callee);
-                    if (relativeId != null) {
-                        paramToArgument.put(relativeId, state.varsState.get(varId));
-                    }
-                }
-            }
-
-            // Check initial state and add relations
-            for (var entry : returnState.initialState().entrySet()) {
-                var myState = paramToArgument.get(entry.getKey());
-                var methodState = entry.getValue();
-
-                ValueSet sharedValue = myState.value().intersect(methodState.value());
-                if (sharedValue.isEmpty()) {
-                    continue;
-                }
-
-                for (VarRelation relation : methodState.relations()) {
-                    if ()
-                }
-            }
-            for (int i = orderedParameters.size() - 1; i >= 0; i--) {
-                var param = orderedParameters.get(i);
-                VarState paramState = returnState.initialState().get(param);
-                StackValue argument = paramToArgument.get(param);
-                ValueSet argumentValue = getValueOf(argument).intersect(paramState.value());
-                if (argumentValue.isEmpty()) {
-                    continue exit;
-                }
-                for (VarRelation relation : paramState.relations()) {
-                    argumentValue = argumentValue.removeNotFulfillingValues(
-                        getValueOf(paramToArgument.get(relation.rhs().varId())), 
-                        relation.relation()
-                    );
-                    if (argumentValue.isEmpty()) {
-                        continue exit;
-                    }
-                    if (argument instanceof LocalRefStackValue lhs &&
-                        paramToArgument.get(relation.rhs().varId()) instanceof LocalRefStackValue rhs) {
-                        switch (state.checkRelation(lhs.local(), this.varsState.get(lhs.local()), rhs.local(),
-                            relation.relation())) {
-                            case NEVER -> {
-                                continue exit;
-                            }
-                            default -> state.addRelationAndExtendTransitive(lhs.local(),
-                                new VarRelation(rhs.local(), relation.relation()));
-                        }
-
-                    }
-                }
-                state.assertStackValue(argument, argumentValue);
-            }
-            state.stack.push(new ConcreteStackValue(returnState.value()));
-
-            result.add(state);
         }
         return result;
     }
 
     public boolean assertTos(ValueSet expectedTos) {
         if (this.peek().isSupersetOf(expectedTos)) {
-            this.stack.push(this.assertStackValue(this.stack.pop(), expectedTos));
+            this.assertVarValue(this.stack.peek(), expectedTos);
             return true;
         } else {
             return false;
         }
     }
 
-    private ValueSet getValueOf(StackValue value) {
-        return this.getStateOf(value).value();
-    }
-
-    private VarState getStateOf(StackValue value) {
-        if (value instanceof ConcreteStackValue concrete) {
-            return concrete.value();
+    // Previous assertStackValue
+    void assertVarValue(int id, ValueSet value) {
+        if (!this.varsState.get(id).value().isSupersetOf(value)) {
+            throw new IllegalStateException(this.varsState.get(id).value() + " is not a superset of " + value);
         } else {
-            return this.varsState.get(((LocalRefStackValue) value).local());
+            // TODO don't throw away relations of the old VarState
+            this.varsState.set(id, new VarState(value));
         }
     }
 
-    private StackValue assertStackValue(StackValue stackValue, ValueSet value) {
-        if (!this.getValueOf(stackValue).isSupersetOf(value)) {
-            throw new IllegalStateException(this.getValueOf(stackValue) + " is not a superset of " + value);
-        } else if (stackValue instanceof LocalRefStackValue ref) {
-            this.varsState.put(ref.local(), new VarState(value, this.varsState.get(ref.local()).relations()));
-            return stackValue;
-        } else {
-            return new ConcreteStackValue(value);
+    private VarId buildVarId(FieldId field) {
+        if (field.isLocal()) {
+            return VarId.forLocal(field.fieldName());
         }
+        FieldId parent = this.fieldValues.entrySet().stream()
+            .filter(e -> e.getValue() == field.parent())
+            .findAny()
+            .orElseThrow()
+            .getKey().fieldId();
+        return buildVarId(parent).resolveField(field.fieldName());
     }
 
-    private void tryAssertRelation(StackValue lhs, StackValue rhs, Relation relation) {
-        if (lhs instanceof LocalRefStackValue lhsRef && rhs instanceof LocalRefStackValue rhsRef) {
-            this.addRelationAndExtendTransitive(lhsRef.local(), new VarRelation(rhsRef.local(), relation));
-        }
+    private void tryAssertRelation(int lhs, int rhs, Relation relation) {
+        this.addRelationAndExtendTransitive(lhs, new VarRelation(rhs, relation));
     }
 
-    private void addRelationAndExtendTransitive(SSAVarId lhs, VarRelation relation) {
-        if (this.varsState.get(lhs).relations().contains(relation) || relation.rhs().equals(lhs)) {
+    private void addRelationAndExtendTransitive(int lhs, VarRelation relation) {
+        if (this.varsState.get(lhs).relations().contains(relation) || relation.rhs() == lhs) {
             return;
         }
 
-        VarState local =
-            this.varsState.compute(lhs, (k, v) -> addRelationAndTrimValue(v, relation.rhs(), relation.relation()));
+        VarState local = addRelationAndTrimValue(this.varsState.get(lhs), relation.rhs(), relation.relation());
+        this.varsState.set(lhs, local);
         //this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
-        
+
         if (relation.relation() == Relation.NOT_EQUAL) {
             // != is not transitive, but symmetric
-            this.varsState.compute(relation.rhs(), (k, v) -> addRelationAndTrimValue(v, lhs, Relation.NOT_EQUAL));
+            this.varsState.set(relation.rhs(),
+                addRelationAndTrimValue(this.varsState.get(relation.rhs()), lhs, Relation.NOT_EQUAL));
             return;
         }
 
@@ -534,61 +510,43 @@ public class EngineState {
             .forEach(r -> addRelationAndExtendTransitive(r.rhs(), new VarRelation(lhs, relation.relation().invert())));
     }
 
-    private VarState addRelationAndTrimValue(VarState state, SSAVarId rhs, Relation relation) {
+    private VarState addRelationAndTrimValue(VarState state, int rhs, Relation relation) {
         Set<VarRelation> relations = new HashSet<>(state.relations());
         relations.add(new VarRelation(rhs, relation));
         ValueSet value = state.value().removeNotFulfillingValues(this.varsState.get(rhs).value(), relation);
         return new VarState(value, relations);
     }
 
-    private BooleanStatus checkRelation(SSAVarId lhs, VarState lhsState, SSAVarId rhs, Relation relation) {
-        if (lhs.equals(rhs)) {
+    private BooleanStatus checkRelation(int lhs, int rhs, Relation relation) {
+        if (lhs == rhs) {
             if (Relation.EQUAL.implies(relation)) {
                 return BooleanStatus.ALWAYS;
             } else if (relation.implies(Relation.NOT_EQUAL)) {
                 return BooleanStatus.NEVER;
             }
         }
-        if (hasRelation(lhsState, rhs, relation)) {
+        if (hasRelation(lhs, rhs, relation)) {
             return BooleanStatus.ALWAYS;
-        } else if (hasRelation(lhsState, rhs, relation.negate())) {
+        } else if (hasRelation(lhs, rhs, relation.negate())) {
             return BooleanStatus.NEVER;
         } else {
             return BooleanStatus.SOMETIMES;
         }
     }
 
-    private boolean hasRelation(VarState lhsState, SSAVarId rhs, Relation relation) {
-        for (VarRelation r : lhsState.relations()) {
-            if (r.relation().implies(relation) && r.rhs().equals(rhs)) {
+    private boolean hasRelation(int lhs, int rhs, Relation relation) {
+        for (VarRelation r : this.varsState.get(lhs).relations()) {
+            if (r.relation().implies(relation) && r.rhs() == rhs) {
                 return true;
             }
         }
         return false;
     }
-    
-    private SSAVarId getNextVar(VarId varId) {
-        return this.liveVariables.compute(varId, (id, ssa) -> {
-            if (ssa == null) {
-                return SSAVarId.forFresh(varId);
-            } else {
-                return ssa.next();
-            }
-        });
-    }
-    
-    private void createVarIfMissing(VarId varId) {
-        this.liveVariables.computeIfAbsent(varId, v -> {
-            VarState parent = this.varsState.get(this.liveVariables.get(v.parent()));
-            if (parent.value() instanceof ObjectValueSet object) {
-                SSAVarId ssa = SSAVarId.forFresh(varId);
-                var state = new VarState(ValueSet.topForType(object.getFieldType(varId.fieldName()), this.context), Set.of());
-                this.varsState.put(ssa, state);
-                return ssa;
-            } else {
-                throw new IllegalStateException();
-            }
-        });
+
+    int createNewVarEntry(VarState state) {
+        int id = this.varsState.size();
+        this.varsState.add(state);
+        return id;
     }
 
     @Override
@@ -596,16 +554,23 @@ public class EngineState {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         EngineState that = (EngineState) o;
-        return varsState.equals(that.varsState) && stack.equals(that.stack) && liveVariables.equals(that.liveVariables);
+        return Objects.equals(varsState, that.varsState) && Objects.equals(stack, that.stack) &&
+            Objects.equals(parameters, that.parameters) &&
+            Objects.equals(fieldValues, that.fieldValues) &&
+            Objects.equals(liveFields, that.liveFields);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(varsState, stack, liveVariables);
+        return Objects.hash(varsState, stack, parameters, fieldValues, liveFields);
     }
 
     @Override
     public String toString() {
-        return this.stack + " " + this.varsState;
+        return "stack: " + this.stack
+            + " fields: [" + this.liveFields.entrySet().stream()
+            .map(e -> e.getKey() + ": $" + this.fieldValues.get(e.getValue()))
+            .collect(Collectors.joining(", "))
+            + "] values: " + this.varsState;
     }
 }

@@ -7,10 +7,8 @@ import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -21,24 +19,8 @@ public class FlowEngine {
 
     public FlowEngine(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
-
-        Map<VarId, VarState> initialValues = new HashMap<>();
-        Set<VarId> parameterNames = new HashSet<>();
-        for (CtParameter<?> parameter : parameters) {
-            VarId local = VarId.forLocal(parameter.getSimpleName());
-            initialValues.put(local,
-                new VarState(ValueSet.topForType(new TypeId(parameter.getType()), context), Set.of()));
-            parameterNames.add(local);
-        }
-
-        if (thisPointer != null) {
-            VarId thisLocal = VarId.forLocal("this");
-            initialValues.put(thisLocal, new VarState(thisPointer, Set.of()));
-            parameterNames.add(thisLocal);
-        }
-
         this.states = new HashSet<>();
-        this.states.add(new EngineState(initialValues, parameterNames, context));
+        this.states.add(new EngineState(thisPointer, parameters, context));
     }
 
     private FlowEngine(Set<EngineState> states, FlowContext context) {
@@ -103,7 +85,7 @@ public class FlowEngine {
 
     public void createLocal(String name, TypeId type) {
         for (EngineState state : this.states) {
-            state.createVariable(VarId.forLocal(name), type);
+            state.createVariable(name, type);
         }
         this.log("createLocal");
     }
@@ -124,11 +106,11 @@ public class FlowEngine {
 
     public void pushLocal(String name) {
         for (EngineState state : this.states) {
-            state.pushVar(VarId.forLocal(name));
+            state.pushVar(name);
         }
         this.log("pushLocal");
     }
-    
+
     public void pushField(String name) {
         for (EngineState state : this.states) {
             state.pushField(name);
@@ -138,18 +120,18 @@ public class FlowEngine {
 
     public void storeLocal(String name) {
         for (EngineState state : this.states) {
-            state.storeVar(VarId.forLocal(name));
+            state.storeVar(name);
         }
         this.log("storeLocal");
     }
-    
+
     public void storeField(String name) {
         for (EngineState state : this.states) {
             state.storeField(name);
         }
         this.log("storeField");
     }
-    
+
     public void pop() {
         for (EngineState state : this.states) {
             state.pop();

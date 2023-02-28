@@ -105,9 +105,21 @@ public final class ObjectValueSet extends ValueSet {
     public ValueSet getFieldValue(String name) {
         return this.fields.get(name);
     }
-    
+
     public TypeId getFieldType(String name) {
         return new TypeId(this.supertype.type().getDeclaredField(name).getType());
+    }
+
+    public ObjectValueSet asNonNull() {
+        if (this.nullness == Nullness.NON_NULL) {
+            return this;
+        } else if (this.nullness == Nullness.UNKNOWN) {
+            return new ObjectValueSet(Nullness.NON_NULL, this.supertype, this.lowerLimitingTypes, this.context);
+        } else if (this.nullness == Nullness.NULL) {
+            throw new IllegalStateException("would throw an NPE");
+        } else {
+            throw new IllegalStateException("Nullness is bottom");
+        }
     }
 
     @Override
@@ -190,6 +202,8 @@ public final class ObjectValueSet extends ValueSet {
             return true;
         } else if (this.isEmpty()) {
             return false;
+        } else if (this.nullness == Nullness.NULL && other.nullness == Nullness.NULL) {
+            return true;
         }
 
         return this.nullness.isSupersetOf(other.nullness)
@@ -207,8 +221,14 @@ public final class ObjectValueSet extends ValueSet {
     public BooleanStatus fulfillsRelation(ValueSet other, Relation relation) {
         if (this.isEmpty()) {
             return relation == Relation.EQUAL ? BooleanStatus.NEVER : BooleanStatus.ALWAYS;
-        } else if (this.intersect(other).isEmpty()) {
+        } else if (this.nullness == Nullness.NULL && ((ObjectValueSet) other).nullness == Nullness.NULL) {
             return relation == Relation.EQUAL ? BooleanStatus.ALWAYS : BooleanStatus.NEVER;
+        } else if (this.intersect(other).isEmpty()) {
+            return switch (relation) {
+                case EQUAL -> BooleanStatus.NEVER;
+                case NOT_EQUAL -> BooleanStatus.ALWAYS;
+                default -> BooleanStatus.SOMETIMES;
+            };
         } else {
             return BooleanStatus.SOMETIMES;
         }

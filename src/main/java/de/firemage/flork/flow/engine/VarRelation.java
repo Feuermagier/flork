@@ -1,6 +1,6 @@
 package de.firemage.flork.flow.engine;
 
-public record VarRelation(SSAVarId rhs, Relation relation) {
+public record VarRelation(int rhs, Relation relation) {
 
     @Override
     public String toString() {
@@ -11,6 +11,6 @@ public record VarRelation(SSAVarId rhs, Relation relation) {
             case LESS_THAN_EQUAL -> "<=";
             case GREATER_THAN -> ">";
             case GREATER_THAN_EQUAL -> ">=";
-        } + this.rhs;
+        } + " $" + this.rhs;
     }
 }

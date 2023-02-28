@@ -34,11 +34,8 @@ import spoon.reflect.code.CtVariableRead;
 import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtExecutable;
-import spoon.reflect.declaration.CtField;
 import spoon.reflect.declaration.CtParameter;
-import spoon.reflect.declaration.CtVariable;
-import spoon.reflect.reference.CtLocalVariableReference;
-import spoon.reflect.reference.CtParameterReference;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -58,7 +55,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         this.effectivelyVoid = executable.getType().getSimpleName().equals("void");
 
         // This pointer
-        Optional<ObjectValueSet> thisPointer = this.method.getThisType().map(t -> ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, t, context));
+        Optional<ObjectValueSet> thisPointer =
+            this.method.getThisType().map(t -> ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, t, context));
 
         if (thisPointer.isPresent()) {
             parameterNames.add(VarId.forLocal("this")); // this is the first parameter
@@ -88,6 +86,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             }
         }
 
+        this.context.log(this.getReturnStates().size() + " return states: " + this.getReturnStates());
         this.context.log("================== " + this.method.getName() + " completed ==================");
         this.context.decreaseIndentation();
     }
@@ -296,7 +295,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         CachedMethod calledMethod = this.context.getCachedMethod(call.getExecutable());
 
         // Create and push the new object as the this-pointer for the method
-        engine.pushValue(ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(call.getExecutable().getType()), this.context));
+        engine.pushValue(
+            ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(call.getExecutable().getType()), this.context));
 
         for (int i = call.getArguments().size() - 1; i >= 0; i--) {
             analyzeExpression(call.getArguments().get(i), engine);
@@ -344,7 +344,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
     private List<MethodExitState> buildExitStates(FlowEngine engine) {
         return engine.getCurrentStates().stream()
-                .map(s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getParamStates()))
-                .toList();
+            .map(
+                s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getParamStates()))
+            .toList();
     }
 }
