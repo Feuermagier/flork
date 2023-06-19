@@ -45,4 +45,8 @@ public enum Nullness {
             return false;
         }
     }
+
+    public boolean canBeNull() {
+        return this == NULL || this == UNKNOWN;
+    }
 }

@@ -340,6 +340,11 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
         // All other branches are now at the start of the loop body
 
+        // Loop condition must be true at least once
+        engine.assertTos(BooleanValueSet.of(true));
+
+
+        engine.join(skipBranch);
     }
 
     private List<MethodExitState> buildExitStates(FlowEngine engine) {

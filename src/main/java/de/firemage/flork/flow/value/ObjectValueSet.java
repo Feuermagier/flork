@@ -170,6 +170,12 @@ public final class ObjectValueSet extends ValueSet {
     @Override
     public ValueSet intersect(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
+
+        // This or other is the nulltype, for which we do not know supertypes / lower bounds
+        if (this.supertype.isNulltype() && other.nullness.canBeNull() || other.supertype.isNulltype() && this.nullness.canBeNull()) {
+            return ObjectValueSet.getNullSet(this.context);
+        }
+
         if (this.nullness.intersect(other.nullness) == Nullness.BOTTOM) {
             return ObjectValueSet.bottom(this.context);
         } else if (other.supertype.isSubtypeOf(this.supertype)

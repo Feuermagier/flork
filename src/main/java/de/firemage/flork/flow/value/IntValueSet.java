@@ -108,7 +108,7 @@ public final class IntValueSet extends ValueSet {
 
     @Override
     public IntValueSet intersect(ValueSet o) {
-        IntValueSet other = (IntValueSet) o; 
+        IntValueSet other = (IntValueSet) o;
         List<IntInterval> result = new ArrayList<>();
         int i = 0;
         int j = 0;
@@ -199,17 +199,28 @@ public final class IntValueSet extends ValueSet {
     @Override
     public BooleanStatus fulfillsRelation(ValueSet o, Relation relation) {
         IntValueSet other = (IntValueSet) o;
+
+        // Single value case
+        if (this.isSingle() && other.isSingle()) {
+            return switch (relation) {
+                case EQUAL, LESS_THAN_EQUAL, GREATER_THAN_EQUAL ->
+                        this.hasCommonValue(other) ? BooleanStatus.ALWAYS : BooleanStatus.NEVER;
+                case NOT_EQUAL, LESS_THAN, GREATER_THAN ->
+                        this.hasCommonValue(other) ? BooleanStatus.NEVER : BooleanStatus.ALWAYS;
+            };
+        }
+
         return switch (relation) {
             case EQUAL -> this.hasCommonValue(other) ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER;
             case NOT_EQUAL -> this.hasCommonValue(other) ? BooleanStatus.SOMETIMES : BooleanStatus.ALWAYS;
             case LESS_THAN -> this.max() < other.min() ? BooleanStatus.ALWAYS :
-                (this.min() < other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+                    (this.min() < other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
             case LESS_THAN_EQUAL -> this.max() <= other.min() ? BooleanStatus.ALWAYS :
-                (this.min() <= other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+                    (this.min() <= other.max() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
             case GREATER_THAN -> this.min() > other.max() ? BooleanStatus.ALWAYS :
-                (this.max() > other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+                    (this.max() > other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
             case GREATER_THAN_EQUAL -> this.min() >= other.max() ? BooleanStatus.ALWAYS :
-                (this.max() >= other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
+                    (this.max() >= other.min() ? BooleanStatus.SOMETIMES : BooleanStatus.NEVER);
         };
     }
 
@@ -228,16 +239,16 @@ public final class IntValueSet extends ValueSet {
 
     public boolean isTop() {
         return this.intervals.size() == 1
-            && this.intervals.get(0).min == this.typeMin
-            && this.intervals.get(0).max == this.typeMax;
+                && this.intervals.get(0).min == this.typeMin
+                && this.intervals.get(0).max == this.typeMax;
     }
 
     public boolean isSingle(long value) {
         return this.intervals.size() == 1
-            && this.intervals.get(0).min == value
-            && this.intervals.get(0).max == value;
+                && this.intervals.get(0).min == value
+                && this.intervals.get(0).max == value;
     }
-    
+
     public boolean isSingle() {
         return this.intervals.size() == 1 && this.intervals.get(0).min == this.intervals.get(0).max;
     }
@@ -278,7 +289,7 @@ public final class IntValueSet extends ValueSet {
         if (max >= this.max()) {
             return this;
         }
-        
+
         List<IntInterval> result = new ArrayList<>(this.intervals.size());
         for (IntInterval interval : this.intervals) {
             if (interval.max <= max) {
@@ -291,7 +302,7 @@ public final class IntValueSet extends ValueSet {
         }
         return new IntValueSet(this.bits, result);
     }
-    
+
     public IntValueSet removeSingle(long value) {
         if (value < this.min() || value > this.max()) {
             return this;
@@ -473,9 +484,9 @@ public final class IntValueSet extends ValueSet {
     @Override
     public String toString() {
         return "{" + this.intervals.stream().map(IntInterval::toString).collect(Collectors.joining(", "))
-            .replace(String.valueOf(this.typeMin), "MIN")
-            .replace("[" + this.typeMax, "[MAX")
-            .replace(this.typeMax + "]", "MAX]") + "}";
+                .replace(String.valueOf(this.typeMin), "MIN")
+                .replace("[" + this.typeMax, "[MAX")
+                .replace(this.typeMax + "]", "MAX]") + "}";
     }
 
     private long overflowValue(long value) {
