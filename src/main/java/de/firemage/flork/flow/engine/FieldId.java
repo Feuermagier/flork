@@ -1,5 +1,11 @@
 package de.firemage.flork.flow.engine;
 
+/**
+ * Represents the name of a field of an object through its chain of values
+ *
+ * @param parent The value id of this object's parent within a specific engine state
+ * @param fieldName
+ */
 public record FieldId(int parent, String fieldName) {
     public static FieldId forLocal(String name) {
         return new FieldId(-1, name);
@@ -11,6 +17,10 @@ public record FieldId(int parent, String fieldName) {
     
     public boolean isLocal() {
         return this.parent < 0;
+    }
+
+    public boolean isLocalOrOwnField() {
+        return this.parent <= 0;
     }
 
     @Override

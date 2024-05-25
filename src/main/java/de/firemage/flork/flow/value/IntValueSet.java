@@ -202,12 +202,17 @@ public final class IntValueSet extends ValueSet {
 
         // Single value case
         if (this.isSingle() && other.isSingle()) {
-            return switch (relation) {
-                case EQUAL, LESS_THAN_EQUAL, GREATER_THAN_EQUAL ->
-                        this.hasCommonValue(other) ? BooleanStatus.ALWAYS : BooleanStatus.NEVER;
-                case NOT_EQUAL, LESS_THAN, GREATER_THAN ->
-                        this.hasCommonValue(other) ? BooleanStatus.NEVER : BooleanStatus.ALWAYS;
+            long myValue = this.intervals.getFirst().min;
+            long otherValue = other.intervals.getFirst().min;
+            boolean fulfilled = switch (relation) {
+                case EQUAL -> myValue == otherValue;
+                case NOT_EQUAL -> myValue != otherValue;
+                case LESS_THAN -> myValue < otherValue;
+                case LESS_THAN_EQUAL -> myValue <= otherValue;
+                case GREATER_THAN -> myValue > otherValue;
+                case GREATER_THAN_EQUAL -> myValue >= otherValue;
             };
+            return fulfilled ? BooleanStatus.ALWAYS : BooleanStatus.NEVER;
         }
 
         return switch (relation) {
@@ -233,31 +238,31 @@ public final class IntValueSet extends ValueSet {
             case GREATER_THAN -> this.splitAtAbove(MathUtil.incSaturating(other.min()));
             case GREATER_THAN_EQUAL -> this.splitAtAbove(other.min());
             case EQUAL -> this.intersect(other);
-            case NOT_EQUAL -> other.isSingle() ? this.removeSingle(other.intervals.get(0).min) : this;
+            case NOT_EQUAL -> other.isSingle() ? this.removeSingle(other.intervals.getFirst().min) : this;
         };
     }
 
     public boolean isTop() {
         return this.intervals.size() == 1
-                && this.intervals.get(0).min == this.typeMin
-                && this.intervals.get(0).max == this.typeMax;
+                && this.intervals.getFirst().min == this.typeMin
+                && this.intervals.getFirst().max == this.typeMax;
     }
 
     public boolean isSingle(long value) {
         return this.intervals.size() == 1
-                && this.intervals.get(0).min == value
-                && this.intervals.get(0).max == value;
+                && this.intervals.getFirst().min == value
+                && this.intervals.getFirst().max == value;
     }
 
     public boolean isSingle() {
-        return this.intervals.size() == 1 && this.intervals.get(0).min == this.intervals.get(0).max;
+        return this.intervals.size() == 1 && this.intervals.getFirst().min == this.intervals.getFirst().max;
     }
 
     public long min() {
         if (this.intervals.isEmpty()) {
             return this.typeMin;
         } else {
-            return this.intervals.get(0).min;
+            return this.intervals.getFirst().min;
         }
     }
 
@@ -338,7 +343,7 @@ public final class IntValueSet extends ValueSet {
             }
         }
         IntValueSet resultSet = new IntValueSet(this.bits, result);
-        if (this.intervals.get(0).min == Integer.MIN_VALUE) {
+        if (this.intervals.getFirst().min == Integer.MIN_VALUE) {
             resultSet = resultSet.merge(IntValueSet.ofIntSingle(this.typeMin));
         }
         return resultSet;

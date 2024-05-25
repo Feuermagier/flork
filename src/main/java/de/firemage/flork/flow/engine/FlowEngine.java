@@ -7,6 +7,10 @@ import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -17,10 +21,15 @@ public class FlowEngine {
     private final FlowContext context;
     private Set<EngineState> states;
 
-    public FlowEngine(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
+    // Fields that have been written to in a given context
+    // Useful e.g. to reset all written fields after loops
+    // The stack represents nested contexts (i.e. blocks)
+    private final Deque<Set<String>> writtenLocalsAndOwnFields = new ArrayDeque<>();
+
+    public FlowEngine(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
         this.states = new HashSet<>();
-        this.states.add(new EngineState(thisPointer, parameters, context));
+        this.states.add(new EngineState(thisType, thisPointer, parameters, context));
     }
 
     private FlowEngine(Set<EngineState> states, FlowContext context) {
@@ -39,13 +48,40 @@ public class FlowEngine {
         this.states.clear();
     }
 
+    public void startWriteRecorder() {
+        this.writtenLocalsAndOwnFields.push(new HashSet<>());
+    }
+
+    public Set<String> endWriteRecorder() {
+        var fields = this.writtenLocalsAndOwnFields.pop();
+        if (fields == null) {
+            throw new IllegalStateException("No write recorder active");
+        }
+
+        // Add the written fields from the inner context to the enclosing context
+        var enclosingContext = this.writtenLocalsAndOwnFields.peek();
+        if (enclosingContext != null ) {
+            enclosingContext.addAll(fields);
+        }
+
+        return fields;
+    }
+
+    private void recordWrite(String localOrField) {
+        var context = this.writtenLocalsAndOwnFields.peek();
+        if (context != null) {
+            context.add(localOrField);
+        }
+    }
+
     /**
-     * This does not fork!!! Beware of unwanted cross references
+     * This does not fork!!! Beware of unwanted cross-references
      *
      * @param expectedTos
      */
     public void assertTos(ValueSet expectedTos) {
         this.states.removeIf(state -> !state.assertTos(expectedTos));
+        this.log("assertTos " + expectedTos);
     }
 
     public void join(FlowEngine other) {
@@ -90,6 +126,13 @@ public class FlowEngine {
         this.log("createLocal");
     }
 
+    public void resetFields(Collection<String> localsAndOwnFields) {
+        for (EngineState state : this.states) {
+            state.resetFields(localsAndOwnFields);
+        }
+        this.log("resetFields");
+    }
+
     public void pushValue(ValueSet value) {
         for (EngineState state : this.states) {
             state.pushValue(value);
@@ -122,12 +165,17 @@ public class FlowEngine {
         for (EngineState state : this.states) {
             state.storeVar(name);
         }
+        this.recordWrite(name);
         this.log("storeLocal");
     }
 
     public void storeField(String name) {
         for (EngineState state : this.states) {
             state.storeField(name);
+        }
+        if (this.states.iterator().next().isTOSThis()) {
+            // We are writing to a field of this, so record it
+            this.recordWrite(name);
         }
         this.log("storeField");
     }

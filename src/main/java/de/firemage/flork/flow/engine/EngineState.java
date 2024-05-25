@@ -15,6 +15,7 @@ import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.declaration.CtParameter;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -48,30 +49,33 @@ public class EngineState {
     final Map<FieldId, SSAVarId> liveFields;
     // List of locals that are also parameters - immutable
     private final Set<String> parameters;
+    // Maps vars to their *declared* type. Useful for resetting values
+    private final Map<VarId, TypeId> types;
 
-    public EngineState(ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
+    public EngineState(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
 
         this.parameters = new HashSet<>(parameters.size());
         this.fieldValues = new HashMap<>(parameters.size() + 1);
         this.liveFields = new HashMap<>(parameters.size() + 1);
         this.varsState = new ArrayList<>(parameters.size() + 1);
+        this.types = new HashMap<>(parameters.size() + 1);
 
-        int thisValue = this.varsState.size();
-        this.varsState.add(new VarState(thisPointer));
-        FieldId thisId = FieldId.forLocal("this");
-        SSAVarId thisSSA = SSAVarId.forFresh(thisId);
-        this.liveFields.put(thisId, thisSSA);
-        this.fieldValues.put(thisSSA, thisValue);
+        if (thisPointer != null) {
+            FieldId thisId = FieldId.forLocal("this");
+            SSAVarId thisSSA = SSAVarId.forFresh(thisId);
+            this.liveFields.put(thisId, thisSSA); // this is alive, and maps to our created SSA value
+            this.fieldValues.put(thisSSA, this.createNewVarEntry(new VarState(thisPointer))); // Store the id to the this value and get it's id (is always 0)
+            this.types.put(THIS, thisType); // Remember which type this is
+        }
 
         for (CtParameter<?> parameter : parameters) {
             this.parameters.add(parameter.getSimpleName());
             FieldId fieldId = FieldId.forLocal(parameter.getSimpleName());
             SSAVarId ssa = SSAVarId.forFresh(fieldId);
             this.liveFields.put(fieldId, ssa);
-            int valueId = this.varsState.size();
-            this.varsState.add(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context)));
-            this.fieldValues.put(ssa, valueId);
+            this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context))));
+            this.types.put(VarId.forLocal(fieldId.fieldName()), TypeId.ofFallible(parameter.getType()).orElseThrow());
         }
 
         this.stack = new ValueStack();
@@ -84,6 +88,7 @@ public class EngineState {
         this.stack = new ValueStack(other.stack);
         this.liveFields = new HashMap<>(other.liveFields);
         this.fieldValues = new HashMap<>(other.fieldValues);
+        this.types = new HashMap<>(other.types);
     }
 
     public EngineState fork() {
@@ -108,12 +113,28 @@ public class EngineState {
     }
 
     public void createVariable(String name, TypeId type) {
-        VarState state = new VarState(ValueSet.topForType(type, this.context), Set.of());
-        int id = this.createNewVarEntry(state);
         FieldId field = FieldId.forLocal(name);
         SSAVarId ssa = SSAVarId.forFresh(field);
         this.liveFields.put(field, ssa);
-        this.fieldValues.put(ssa, id);
+        this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(ValueSet.topForType(type, this.context))));
+        this.types.put(VarId.forLocal(name), type);
+    }
+
+    public void resetFields(Collection<String> localsAndOwnFields) {
+        this.liveFields.entrySet().removeIf(f -> {
+            // Edit the entry of locals to their respective top type
+            if (f.getKey().isLocalOrOwnField()) {
+                if (localsAndOwnFields.contains(f.getKey().fieldName())) {
+                    SSAVarId ssa = f.getValue().next();
+                    ValueSet newValue = ValueSet.topForType(this.types.get(this.buildVarId(f.getKey())), this.context);
+                    this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(newValue)));
+                    f.setValue(ssa);
+                }
+                // Don't remove locals and own fields that are not in the list
+                return false;
+            }
+            return true;
+        });
     }
 
     public void pushValue(ValueSet value) {
@@ -136,11 +157,13 @@ public class EngineState {
         this.varsState.set(parent, new VarState(((ObjectValueSet) parentState.value()).asNonNull(),
             parentState.relations()));
 
+        TypeId type = ((ObjectValueSet) parentState.value()).getFieldType(field);
+
         SSAVarId ssaId = this.liveFields.computeIfAbsent(new FieldId(parent, field), id -> {
-            ObjectValueSet parentObject = (ObjectValueSet) this.varsState.get(id.parent()).value();
-            ValueSet value = ValueSet.topForType(parentObject.getFieldType(id.fieldName()), this.context);
+            ValueSet value = ValueSet.topForType(type, this.context);
             SSAVarId ssa = SSAVarId.forFresh(id);
             this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(value)));
+            this.types.put(this.buildVarId(id), type); // Record the type of the field
             return ssa;
         });
         this.stack.push(this.fieldValues.get(ssaId));
@@ -172,6 +195,10 @@ public class EngineState {
 
     public ValueSet peek() {
         return this.varsState.get(this.stack.peek()).value();
+    }
+
+    public boolean isTOSThis() {
+        return this.stack.peek() == 0;
     }
 
     public ValueSet peekOrVoid() {

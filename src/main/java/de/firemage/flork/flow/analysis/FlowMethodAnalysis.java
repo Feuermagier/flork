@@ -16,6 +16,7 @@ import spoon.reflect.code.CtAnnotationFieldAccess;
 import spoon.reflect.code.CtAssignment;
 import spoon.reflect.code.CtBinaryOperator;
 import spoon.reflect.code.CtBlock;
+import spoon.reflect.code.CtComment;
 import spoon.reflect.code.CtConstructorCall;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.code.CtFieldRead;
@@ -38,7 +39,6 @@ import spoon.reflect.declaration.CtParameter;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 public class FlowMethodAnalysis implements MethodAnalysis {
     private final FlowContext context;
@@ -55,11 +55,19 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         this.effectivelyVoid = executable.getType().getSimpleName().equals("void");
 
         // This pointer
-        Optional<ObjectValueSet> thisPointer =
-            this.method.getThisType().map(t -> ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, t, context));
-
-        if (thisPointer.isPresent()) {
+        TypeId thisType = method.getThisType().orElse(null);
+        ObjectValueSet thisPointer = null;
+        if (thisType != null) {
             parameterNames.add(VarId.forLocal("this")); // this is the first parameter
+
+            // Construct the possible values of the this-pointer
+            if (method.isEffectivelyFinal()) {
+                thisPointer = ObjectValueSet.forExactType(Nullness.NON_NULL, thisType, context);
+            } else {
+                // We don't know the exact type of this, so we use the least upper bound
+                // of all possible subtypes
+                thisPointer = ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, thisType, context);
+            }
         }
 
         // Other parameters
@@ -70,7 +78,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         this.context.increaseIndentation();
         this.context.log("=============== " + this.method.getName() + " ===============");
 
-        FlowEngine engine = new FlowEngine(thisPointer.orElse(null), executable.getParameters(), this.context);
+        FlowEngine engine = new FlowEngine(thisType, thisPointer, executable.getParameters(), this.context);
         analyzeBlock(executable.getBody(), engine);
         if (!engine.isStackEmpty()) {
             throw new IllegalStateException("Stack is not empty after end of method");
@@ -117,38 +125,42 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeStatement(CtStatement statement, FlowEngine engine) {
-        if (statement instanceof CtExpression<?> expression) {
-            analyzeExpression(expression, engine);
-            engine.pop();
-        } else if (statement instanceof CtLocalVariable<?> localDefinition) {
-            engine.createLocal(localDefinition.getSimpleName(), new TypeId(localDefinition.getType()));
-            if (localDefinition.getAssignment() != null) {
-                analyzeExpression(localDefinition.getAssignment(), engine);
-                engine.storeLocal(localDefinition.getSimpleName());
+        switch (statement) {
+            case CtExpression<?> expression -> {
+                analyzeExpression(expression, engine);
                 engine.pop();
             }
-        } else if (statement instanceof CtIf ifStmt) {
-            analyzeIf(ifStmt, engine);
-        } else if (statement instanceof CtBlock<?> block) {
-            analyzeBlock(block, engine);
-        } else if (statement instanceof CtReturn<?> ret) {
-            if (ret.getReturnedExpression() == null) {
-                if (this.method.isConstructor()) {
-                    engine.pushThis();
-                } else {
-                    engine.pushValue(VoidValue.getInstance());
+            case CtLocalVariable<?> localDefinition -> {
+                engine.createLocal(localDefinition.getSimpleName(), new TypeId(localDefinition.getType()));
+                if (localDefinition.getAssignment() != null) {
+                    analyzeExpression(localDefinition.getAssignment(), engine);
+                    engine.storeLocal(localDefinition.getSimpleName());
+                    engine.pop();
                 }
-            } else {
-                analyzeExpression(ret.getReturnedExpression(), engine);
             }
-            this.returnStates.addAll(buildExitStates(engine));
-            engine.pop();
-            if (!engine.isStackEmpty()) {
-                throw new IllegalStateException("Stack is not empty");
+            case CtIf ifStmt -> analyzeIf(ifStmt, engine);
+            case CtBlock<?> block -> analyzeBlock(block, engine);
+            case CtReturn<?> ret -> {
+                if (ret.getReturnedExpression() == null) {
+                    if (this.method.isConstructor()) {
+                        engine.pushThis();
+                    } else {
+                        engine.pushValue(VoidValue.getInstance());
+                    }
+                } else {
+                    analyzeExpression(ret.getReturnedExpression(), engine);
+                }
+                this.returnStates.addAll(buildExitStates(engine));
+                engine.pop();
+                if (!engine.isStackEmpty()) {
+                    throw new IllegalStateException("Stack is not empty");
+                }
+                engine.clear();
             }
-            engine.clear();
-        } else {
-            throw new UnsupportedOperationException(statement.getClass().getName());
+            case CtWhile whileLoop -> analyzeWhileLoop(whileLoop, engine);
+            case CtComment ignored -> {
+            }
+            default -> throw new UnsupportedOperationException(statement.getClass().getName());
         }
 
         // Clear the stack after every statement
@@ -156,39 +168,38 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeExpression(CtExpression<?> expression, FlowEngine engine) {
-        if (expression instanceof CtAssignment<?, ?> assignment) {
-            analyzeAssignment(assignment, engine);
-        } else if (expression instanceof CtVariableRead<?> read) {
-            analyzeRead(read, engine);
-        } else if (expression instanceof CtLiteral<?> literal) {
-            analyzeLiteral(literal, engine);
-        } else if (expression instanceof CtBinaryOperator<?> operator) {
-            switch (operator.getKind()) {
-                case AND -> analyzeAnd(operator, engine);
-                case OR -> analyzeOr(operator, engine);
-                default -> analyzeEagerBinary(operator, engine);
+        switch (expression) {
+            case CtAssignment<?, ?> assignment -> analyzeAssignment(assignment, engine);
+            case CtVariableRead<?> read -> analyzeRead(read, engine);
+            case CtLiteral<?> literal -> analyzeLiteral(literal, engine);
+            case CtBinaryOperator<?> operator -> {
+                switch (operator.getKind()) {
+                    case AND -> analyzeAnd(operator, engine);
+                    case OR -> analyzeOr(operator, engine);
+                    default -> analyzeEagerBinary(operator, engine);
+                }
             }
-        } else if (expression instanceof CtUnaryOperator<?> operator) {
-            analyzeExpression(operator.getOperand(), engine);
-            switch (operator.getKind()) {
-                case NOT -> engine.not();
-                case NEG -> engine.negate();
-                default -> throw new UnsupportedOperationException();
+            case CtUnaryOperator<?> operator -> {
+                analyzeExpression(operator.getOperand(), engine);
+                switch (operator.getKind()) {
+                    case NOT -> engine.not();
+                    case NEG -> engine.negate();
+                    default -> throw new UnsupportedOperationException();
+                }
             }
-        } else if (expression instanceof CtThisAccess<?>) {
-            engine.pushThis();
-        } else if (expression instanceof CtInvocation<?> invocation) {
-            if (invocation.getTarget() != null) {
-                analyzeExpression(invocation.getTarget(), engine);
-            }
+            case CtThisAccess<?> ignored -> engine.pushThis();
+            case CtInvocation<?> invocation -> {
+                if (invocation.getTarget() != null) {
+                    analyzeExpression(invocation.getTarget(), engine);
+                }
 
-            analyzeInvocation(invocation, engine);
-        } else if (expression instanceof CtConstructorCall<?> constructorCall) {
-            analyzeConstructorCall(constructorCall, engine);
-        } else if (expression instanceof CtTypeAccess<?> access) {
-            // TODO not sure what to do with this - ignore for now, but may be relevant for static field accesses
-        } else {
-            throw new UnsupportedOperationException(expression.getClass().getName());
+                analyzeInvocation(invocation, engine);
+            }
+            case CtConstructorCall<?> constructorCall -> analyzeConstructorCall(constructorCall, engine);
+            case CtTypeAccess<?> access -> {
+                // TODO not sure what to do with this - ignore for now, but may be relevant for static field accesses
+            }
+            default -> throw new UnsupportedOperationException(expression.getClass().getName());
         }
 
         expression.putMetadata(FlowContext.VALUE_KEY, engine.peekOrVoid());
@@ -296,7 +307,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
         // Create and push the new object as the this-pointer for the method
         engine.pushValue(
-            ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(call.getExecutable().getType()), this.context));
+                ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(call.getExecutable().getType()), this.context));
 
         for (int i = call.getArguments().size() - 1; i >= 0; i--) {
             analyzeExpression(call.getArguments().get(i), engine);
@@ -333,24 +344,61 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeWhileLoop(CtWhile loop, FlowEngine engine) {
+        int totalStates = engine.getCurrentStates().size();
+
         // Filter out states that skip the loop
+        this.context.log("== while: first condition");
         analyzeExpression(loop.getLoopingExpression(), engine);
         FlowEngine skipBranch = engine.fork(BooleanValueSet.of(false));
         skipBranch.pop();
 
         // All other branches are now at the start of the loop body
-
-        // Loop condition must be true at least once
+        // For these, the loop condition must be true at least once
         engine.assertTos(BooleanValueSet.of(true));
+        engine.pop();
 
+        if (engine.isImpossibleState()) {
+            engine.join(skipBranch);
+            return;
+        }
 
+        // We simulate the first iteration to check for states that iterate only once
+        // Also, we record written variables so that we can reset them after the loop
+        // for loops that are taken more than once
+        // We also want to record the condition evaluation, since it may perform writes
+        this.context.log("== while: first iteration " + engine.getCurrentStates().size() + "/" + totalStates);
+        engine.startWriteRecorder();
+        analyzeStatement(loop.getBody(), engine);
+
+        // Filter out states with a single iteration
+        this.context.log("== while: second condition");
+        analyzeExpression(loop.getLoopingExpression(), engine);
+        FlowEngine singleIterationBranch = engine.fork(BooleanValueSet.of(false));
+        singleIterationBranch.pop();
+
+        // The remaining branches take the loop again
+        // We do not analyze any more iterations, but instead just rest possibly written-to variables
+        engine.assertTos(BooleanValueSet.of(true));
+        engine.pop();
+
+        if (!engine.isImpossibleState()) {
+            engine.resetFields(engine.endWriteRecorder());
+            // The loop condition is false after the last iteration
+            this.context.log("== while: third condition " + engine.getCurrentStates().size() + "/" + totalStates);
+            analyzeExpression(loop.getLoopingExpression(), engine);
+            // TODO The following assert filters out some infinite loops; report this
+            engine.assertTos(BooleanValueSet.of(false));
+            engine.pop();
+        }
+
+        engine.join(singleIterationBranch);
         engine.join(skipBranch);
     }
 
     private List<MethodExitState> buildExitStates(FlowEngine engine) {
         return engine.getCurrentStates().stream()
-            .map(
-                s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getParamStates()))
-            .toList();
+                .map(
+                        s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getParamStates()))
+                .toList();
     }
 }
