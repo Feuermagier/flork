@@ -20,7 +20,7 @@
 //     }
 // }
 
-class Foo {
+public class Foo {
     private Foo x;
 
     public int foo(int x) {

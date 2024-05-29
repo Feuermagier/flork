@@ -3,6 +3,7 @@ package de.firemage.flork.flow;
 import de.firemage.flork.flow.analysis.FlowMethodAnalysis;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.analysis.StubMethodAnalysis;
+import de.firemage.flork.flow.annotation.FlorkOpaque;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.reference.CtExecutableReference;
 import java.util.List;
@@ -15,6 +16,7 @@ public class CachedMethod {
     private final CtExecutableReference<?> method;
     private final String qualifiedName;
     private final boolean effectivelyFinal;
+    private final boolean opaque;
 
     private StubMethodAnalysis unknownAnalysis;
     private List<MethodAnalysis> virtualCallAnalyses;
@@ -25,6 +27,7 @@ public class CachedMethod {
         this.method = method;
         this.virtualCallAnalyses = null;
         this.localAnalysis = null;
+        this.opaque = method.hasAnnotation(FlorkOpaque.class);
         this.qualifiedName = FlowContext.buildQualifiedExecutableName(method);
 
         this.effectivelyFinal = method.isConstructor()
@@ -69,10 +72,18 @@ public class CachedMethod {
      * @return
      */
     public MethodAnalysis getFixedCallAnalysis() {
+        if (this.opaque) {
+            return this.getUnknownAnalysis();
+        }
+
         return this.getLocalAnalysis();
     }
 
     public List<MethodAnalysis> getVirtualCallAnalyses() {
+        if (this.opaque) {
+            return List.of(this.getUnknownAnalysis());
+        }
+
         if (this.isStatic()) {
             throw new IllegalStateException("Cannot virtual-call the non-virtual method " + this.getName());
         }
