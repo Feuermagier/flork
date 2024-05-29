@@ -14,7 +14,6 @@ public class CachedMethod {
     private final FlowContext context;
     private final CtExecutableReference<?> method;
     private final String qualifiedName;
-    private final boolean isOverriden;
     private final boolean effectivelyFinal;
 
     private StubMethodAnalysis unknownAnalysis;
@@ -28,14 +27,12 @@ public class CachedMethod {
         this.localAnalysis = null;
         this.qualifiedName = FlowContext.buildQualifiedExecutableName(method);
 
-        this.isOverriden = method.getDeclaringType() != null && method.getDeclaringType().getDeclaration().isFinal();
-
         this.effectivelyFinal = method.isConstructor()
                 || method.isStatic()
                 || method.getDeclaration() instanceof CtMethod m && m.isPrivate()
                 || method.isFinal()
-                || this.isOverriden
-                || context.isClosedWorld() && TypeUtil.getAllOverridingMethods(this.method, this.context).findAny().isPresent();
+                || method.getDeclaringType() != null && method.getDeclaringType().getDeclaration().isFinal()
+                || context.isClosedWorld() && TypeUtil.getAllOverridingMethods(this.method, this.context).findAny().isEmpty();
     }
 
     public String getName() {

@@ -29,7 +29,7 @@ class MethodAnalysisTest {
         var method = (CtMethod<?>) model.getUnnamedModule()
             .getElements(CtMethod.class::isInstance)
             .stream()
-            .filter(m -> ((CtMethod<?>) m).getSimpleName().equals("foo"))
+            .filter(e -> e instanceof CtMethod<?> m && m.getSimpleName().equals("foo") && m.getDeclaringType().getSimpleName().equals("Foo"))
             .findFirst().get();
         System.out.println(method);
         var result = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();

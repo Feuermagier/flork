@@ -1,5 +1,6 @@
 package de.firemage.flork.flow.engine;
 
+import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.MethodExitState;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
@@ -29,7 +30,13 @@ public class CallMapper {
             if (requiredValue.getValue().value().isSupersetOf(ownValue.value())) {
                 // Nothing to do; our value is more specific than the one required
             } else if (ownValue.value().isSupersetOf(requiredValue.getValue().value())) {
-                // Our value is more general. Narrow it down to the required value.
+                // Our value is more general. Try narrowing it down to the one required
+                for (var relation : ownValue.relations()) {
+                    if (requiredValue.getValue().value().fulfillsRelation(this.state.varsState.get(relation.rhs()).value(), relation.relation()) != BooleanStatus.NEVER) {
+                        return null;
+                    }
+                }
+                // We don't clash with any constraints
                 this.state.assertVarValue(ownState, requiredValue.getValue().value());
             } else {
                 // The values are disjoint -> the precondition of this state is not met
@@ -39,6 +46,9 @@ public class CallMapper {
 
         // Postconditions
         this.state.stack.push(this.state.createNewVarEntry(new VarState(returnState.value())));
+
+        // Reset fields
+        this.state.resetAllFields();
 
         return this.state;
     }
@@ -57,7 +67,7 @@ public class CallMapper {
             SSAVarId ssa = SSAVarId.forFresh(fieldId);
             this.state.liveFields.put(fieldId, ssa);
             this.state.fieldValues.put(ssa, valueId);
-            
+
             knownValues.put(field, valueId);
             return valueId;
         } else {

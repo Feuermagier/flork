@@ -82,7 +82,7 @@ public class FlowContext {
         if (type.type().getDeclaration() != null && type.type().getDeclaration().isFinal()) {
             return true;
         } else {
-            return this.getAllTypes().noneMatch(t -> t.isSubtypeOf(type) && !t.equals(type));
+            return this.closedWorld && this.getAllTypes().noneMatch(t -> t.isSubtypeOf(type) && !t.equals(type));
         }
     }
 

@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
  * the entire engine state.
  */
 public class EngineState {
-    private static final VarId THIS = VarId.forLocal("this");
+    public static final int THIS_VALUE = 0;
 
     final FlowContext context;
 
@@ -47,34 +47,39 @@ public class EngineState {
     final Map<SSAVarId, Integer> fieldValues;
     // Store the current value of each field / local where we have any knowledge
     final Map<FieldId, SSAVarId> liveFields;
-    // List of locals that are also parameters - immutable
-    private final Set<String> parameters;
     // Maps vars to their *declared* type. Useful for resetting values
     private final Map<VarId, TypeId> types;
+    // Stores the *initial* value of each parameter & own field. Useful to construct preconditions for states - immutable
+    // May contain null to indicate that we never used the initial value (but overwrite it)
+    private final Map<VarId, Integer> initialFieldValues;
 
     public EngineState(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
 
-        this.parameters = new HashSet<>(parameters.size());
         this.fieldValues = new HashMap<>(parameters.size() + 1);
         this.liveFields = new HashMap<>(parameters.size() + 1);
         this.varsState = new ArrayList<>(parameters.size() + 1);
         this.types = new HashMap<>(parameters.size() + 1);
+        this.initialFieldValues = new HashMap<>(parameters.size());
 
         if (thisPointer != null) {
             FieldId thisId = FieldId.forLocal("this");
             SSAVarId thisSSA = SSAVarId.forFresh(thisId);
             this.liveFields.put(thisId, thisSSA); // this is alive, and maps to our created SSA value
-            this.fieldValues.put(thisSSA, this.createNewVarEntry(new VarState(thisPointer))); // Store the id to the this value and get it's id (is always 0)
-            this.types.put(THIS, thisType); // Remember which type this is
+            if (this.createNewVarEntry(new VarState(thisPointer)) != THIS_VALUE) {
+                throw new IllegalStateException("Value of THIS is unexpectedly not 0 - this is a bug");
+            }
+            this.fieldValues.put(thisSSA, THIS_VALUE); // Store the id to the this value and get its id (is always 0)
+            this.types.put(VarId.THIS, thisType); // Remember which type this is
         }
 
         for (CtParameter<?> parameter : parameters) {
-            this.parameters.add(parameter.getSimpleName());
             FieldId fieldId = FieldId.forLocal(parameter.getSimpleName());
             SSAVarId ssa = SSAVarId.forFresh(fieldId);
             this.liveFields.put(fieldId, ssa);
-            this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context))));
+            int value = this.createNewVarEntry(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context)));
+            this.fieldValues.put(ssa, value);
+            this.initialFieldValues.put(VarId.forLocal(parameter.getSimpleName()), value);
             this.types.put(VarId.forLocal(fieldId.fieldName()), TypeId.ofFallible(parameter.getType()).orElseThrow());
         }
 
@@ -84,30 +89,23 @@ public class EngineState {
     private EngineState(EngineState other) {
         this.context = other.context;
         this.varsState = new ArrayList<>(other.varsState);
-        this.parameters = other.parameters;
         this.stack = new ValueStack(other.stack);
         this.liveFields = new HashMap<>(other.liveFields);
         this.fieldValues = new HashMap<>(other.fieldValues);
         this.types = new HashMap<>(other.types);
+        this.initialFieldValues = new HashMap<>(other.initialFieldValues);
     }
 
     public EngineState fork() {
         return new EngineState(this);
     }
 
-    public Map<VarId, VarState> getParamStates() {
-        // Remove relations with non-parameter locals
-        Map<VarId, VarState> paramStates = new HashMap<>(this.parameters.size());
-        for (var field : this.liveFields.entrySet()) {
-            if (!field.getValue().isInitial()) {
-                continue;
-            }
-            if (field.getKey().isLocal() && !this.parameters.contains(field.getKey().fieldName())) {
-                continue;
-            }
-            VarState state = this.varsState.get(this.fieldValues.get(field.getValue()));
-            //TODO add relations and fields
-            paramStates.put(this.buildVarId(field.getKey()), new VarState(state.value()));
+    public Map<VarId, VarState> getInitialState() {
+        Map<VarId, VarState> paramStates = new HashMap<>(this.initialFieldValues.size());
+        for (var field : this.initialFieldValues.entrySet()) {
+            VarState state = this.varsState.get(field.getValue());
+            //TODO add relations to other initial values
+            paramStates.put(field.getKey(), new VarState(state.value()));
         }
         return paramStates;
     }
@@ -120,21 +118,22 @@ public class EngineState {
         this.types.put(VarId.forLocal(name), type);
     }
 
-    public void resetFields(Collection<String> localsAndOwnFields) {
+    public void resetFields(Collection<VarId> fields, boolean resetAllNestedFields) {
         this.liveFields.entrySet().removeIf(f -> {
             // Edit the entry of locals to their respective top type
-            if (f.getKey().isLocalOrOwnField()) {
-                if (localsAndOwnFields.contains(f.getKey().fieldName())) {
-                    SSAVarId ssa = f.getValue().next();
-                    ValueSet newValue = ValueSet.topForType(this.types.get(this.buildVarId(f.getKey())), this.context);
-                    this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(newValue)));
-                    f.setValue(ssa);
-                }
-                // Don't remove locals and own fields that are not in the list
+            if (fields.contains(this.buildVarId(f.getKey()))) {
+                SSAVarId ssa = f.getValue().next();
+                ValueSet newValue = ValueSet.topForType(this.types.get(this.buildVarId(f.getKey())), this.context);
+                this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(newValue)));
+                f.setValue(ssa);
                 return false;
             }
-            return true;
+            return resetAllNestedFields && !f.getKey().isLocalOrOwnField();
         });
+    }
+
+    public void resetAllFields() {
+        this.liveFields.entrySet().removeIf(f -> !f.getKey().isLocal());
     }
 
     public void pushValue(ValueSet value) {
@@ -167,6 +166,11 @@ public class EngineState {
             return ssa;
         });
         this.stack.push(this.fieldValues.get(ssaId));
+
+        if (parent == THIS_VALUE) {
+            // Remember the first known field value
+            this.initialFieldValues.computeIfAbsent(VarId.forOwnField(field), varId -> this.fieldValues.get(ssaId));
+        }
     }
 
     public void storeVar(String variable) {
@@ -187,6 +191,11 @@ public class EngineState {
         VarState oldState = this.varsState.get(objValue);
         this.varsState.set(objValue, new VarState(((ObjectValueSet) oldState.value()).asNonNull(),
             oldState.relations()));
+
+        if (objValue == THIS_VALUE) {
+            // If we don't assume an initial value for the field yet, we will never assume any since it is now overridden
+            this.initialFieldValues.putIfAbsent(VarId.forOwnField(name), null);
+        }
     }
 
     public void pop() {
@@ -450,9 +459,12 @@ public class EngineState {
 
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
-            // TODO reset all fields that may have been mutated
+            this.resetAllFields();
             return List.of(this);
         }
+
+        // We don't know what happened to non-own fields
+        this.resetFields(List.of(), true);
 
         Map<VarId, Integer> knownValues = new HashMap<>(method.getOrderedParameterNames().size());
 
@@ -465,7 +477,7 @@ public class EngineState {
 
         if (callee >= 0) {
             // Map known fields
-            this.collectFieldValues(THIS, callee, knownValues);
+            this.collectFieldValues(VarId.THIS, callee, knownValues);
         }
 
         List<EngineState> result = new ArrayList<>();
@@ -489,11 +501,11 @@ public class EngineState {
 
     // Previous assertStackValue
     void assertVarValue(int id, ValueSet value) {
-        if (!this.varsState.get(id).value().isSupersetOf(value)) {
+        var oldState = this.varsState.get(id);
+        if (!oldState.value().isSupersetOf(value)) {
             throw new IllegalStateException(this.varsState.get(id).value() + " is not a superset of " + value);
         } else {
-            // TODO don't throw away relations of the old VarState
-            this.varsState.set(id, new VarState(value));
+            this.varsState.set(id, new VarState(value, oldState.relations()));
         }
     }
 
@@ -582,14 +594,14 @@ public class EngineState {
         if (o == null || getClass() != o.getClass()) return false;
         EngineState that = (EngineState) o;
         return Objects.equals(varsState, that.varsState) && Objects.equals(stack, that.stack) &&
-            Objects.equals(parameters, that.parameters) &&
+            Objects.equals(initialFieldValues, that.initialFieldValues) &&
             Objects.equals(fieldValues, that.fieldValues) &&
             Objects.equals(liveFields, that.liveFields);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(varsState, stack, parameters, fieldValues, liveFields);
+        return Objects.hash(varsState, stack, initialFieldValues, fieldValues, liveFields);
     }
 
     @Override

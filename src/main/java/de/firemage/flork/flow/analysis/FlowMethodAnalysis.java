@@ -61,7 +61,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             parameterNames.add(VarId.forLocal("this")); // this is the first parameter
 
             // Construct the possible values of the this-pointer
-            if (method.isEffectivelyFinal()) {
+            if (context.isEffectivelyFinalType(thisType)) {
                 thisPointer = ObjectValueSet.forExactType(Nullness.NON_NULL, thisType, context);
             } else {
                 // We don't know the exact type of this, so we use the least upper bound
@@ -398,7 +398,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     private List<MethodExitState> buildExitStates(FlowEngine engine) {
         return engine.getCurrentStates().stream()
                 .map(
-                        s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getParamStates()))
+                        s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getInitialState()))
                 .toList();
     }
 }

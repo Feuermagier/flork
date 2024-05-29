@@ -10,8 +10,14 @@ package de.firemage.flork.flow.engine;
  * @param name
  */
 public record VarId(VarId parent, String name) {
+    public static final VarId THIS = VarId.forLocal("this");
+
     public static VarId forLocal(String name) {
         return new VarId(null, name);
+    }
+
+    public static VarId forOwnField(String name) {
+        return new VarId(VarId.THIS, name);
     }
     
     public String fieldName() {

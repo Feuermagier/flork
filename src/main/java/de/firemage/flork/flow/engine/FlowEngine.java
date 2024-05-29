@@ -24,7 +24,7 @@ public class FlowEngine {
     // Fields that have been written to in a given context
     // Useful e.g. to reset all written fields after loops
     // The stack represents nested contexts (i.e. blocks)
-    private final Deque<Set<String>> writtenLocalsAndOwnFields = new ArrayDeque<>();
+    private final Deque<Set<VarId>> writtenLocalsAndOwnFields = new ArrayDeque<>();
 
     public FlowEngine(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
@@ -52,7 +52,7 @@ public class FlowEngine {
         this.writtenLocalsAndOwnFields.push(new HashSet<>());
     }
 
-    public Set<String> endWriteRecorder() {
+    public Set<VarId> endWriteRecorder() {
         var fields = this.writtenLocalsAndOwnFields.pop();
         if (fields == null) {
             throw new IllegalStateException("No write recorder active");
@@ -67,7 +67,7 @@ public class FlowEngine {
         return fields;
     }
 
-    private void recordWrite(String localOrField) {
+    private void recordWrite(VarId localOrField) {
         var context = this.writtenLocalsAndOwnFields.peek();
         if (context != null) {
             context.add(localOrField);
@@ -126,9 +126,9 @@ public class FlowEngine {
         this.log("createLocal");
     }
 
-    public void resetFields(Collection<String> localsAndOwnFields) {
+    public void resetFields(Collection<VarId> localsAndOwnFields) {
         for (EngineState state : this.states) {
-            state.resetFields(localsAndOwnFields);
+            state.resetFields(localsAndOwnFields, true);
         }
         this.log("resetFields");
     }
@@ -165,7 +165,7 @@ public class FlowEngine {
         for (EngineState state : this.states) {
             state.storeVar(name);
         }
-        this.recordWrite(name);
+        this.recordWrite(VarId.forLocal(name));
         this.log("storeLocal");
     }
 
@@ -175,7 +175,7 @@ public class FlowEngine {
         }
         if (this.states.iterator().next().isTOSThis()) {
             // We are writing to a field of this, so record it
-            this.recordWrite(name);
+            this.recordWrite(VarId.forOwnField(name));
         }
         this.log("storeField");
     }
