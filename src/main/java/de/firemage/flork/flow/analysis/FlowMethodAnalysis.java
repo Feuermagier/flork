@@ -197,7 +197,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             }
             case CtConstructorCall<?> constructorCall -> analyzeConstructorCall(constructorCall, engine);
             case CtTypeAccess<?> access -> {
-                // TODO not sure what to do with this - ignore for now, but may be relevant for static field accesses
+                // Can't handle this for now, so play safeTypeId.ofFallible
+                engine.pushValue(ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(access.getAccessedType()), this.context));
             }
             default -> throw new UnsupportedOperationException(expression.getClass().getName());
         }

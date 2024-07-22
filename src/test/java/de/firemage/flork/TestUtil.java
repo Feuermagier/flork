@@ -16,12 +16,12 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestUtil {
-    public static FlowContext getFlowContext(Path path, boolean closedWorld) {
-        return getFlowContext(new FileSystemFile(path.toFile()), closedWorld);
-    }
-
     public static FlowContext getFlowContext(String fileContent, boolean closedWorld) {
         return getFlowContext(new VirtualFile(fileContent), closedWorld);
+    }
+
+    public static FlowContext getFlowContext(Path folder, boolean closedWorld) {
+        return getFlowContext(new FileSystemFolder(folder.toFile()), closedWorld);
     }
 
     public static FlowContext getFlowContext(SpoonResource resource, boolean closedWorld) {
@@ -41,7 +41,7 @@ public class TestUtil {
         return (CtMethod<?>) context.getModel().getUnnamedModule()
                 .getElements(CtMethod.class::isInstance)
                 .stream()
-                .filter(e -> e instanceof CtMethod<?> m && m.getSimpleName().equals("foo") && m.getDeclaringType().getSimpleName().equals("Foo"))
+                .filter(e -> e instanceof CtMethod<?> m && m.getSimpleName().equals(method) && m.getDeclaringType().getQualifiedName().equals(type))
                 .findFirst().get();
     }
 

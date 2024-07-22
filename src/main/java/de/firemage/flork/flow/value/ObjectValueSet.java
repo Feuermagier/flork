@@ -107,7 +107,7 @@ public final class ObjectValueSet extends ValueSet {
     }
 
     public TypeId getFieldType(String name) {
-        return new TypeId(this.supertype.type().getDeclaredField(name).getType());
+        return new TypeId(this.supertype.type().getDeclaredOrInheritedField(name).getType());
     }
 
     public ObjectValueSet asNonNull() {

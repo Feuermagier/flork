@@ -6,6 +6,7 @@ import de.firemage.flork.flow.analysis.StubMethodAnalysis;
 import de.firemage.flork.flow.annotation.FlorkOpaque;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.reference.CtExecutableReference;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,13 +22,15 @@ public class CachedMethod {
     private StubMethodAnalysis unknownAnalysis;
     private List<MethodAnalysis> virtualCallAnalyses;
     private MethodAnalysis localAnalysis;
+    private TypeId declaringType;
 
     public CachedMethod(CtExecutableReference<?> method, FlowContext context) {
         this.context = context;
         this.method = method;
+        this.declaringType = TypeId.ofFallible(method.getDeclaringType()).orElseThrow();
         this.virtualCallAnalyses = null;
         this.localAnalysis = null;
-        this.opaque = method.hasAnnotation(FlorkOpaque.class);
+        this.opaque = method.hasAnnotation(FlorkOpaque.class) || this.declaringType.isJDKType();
         this.qualifiedName = FlowContext.buildQualifiedExecutableName(method);
 
         this.effectivelyFinal = method.isConstructor()
@@ -58,7 +61,7 @@ public class CachedMethod {
         if (this.isStatic()) {
             return Optional.empty();
         } else {
-            return Optional.of(new TypeId(this.method.getDeclaringType()));
+            return Optional.of(this.declaringType);
         }
     }
 

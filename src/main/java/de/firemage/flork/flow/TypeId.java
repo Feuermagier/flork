@@ -37,6 +37,10 @@ public record TypeId(CtTypeReference<?> type) {
         return this.getName().equals("void");
     }
 
+    public boolean isJDKType() {
+        return this.type.isShadow();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
