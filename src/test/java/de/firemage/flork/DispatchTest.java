@@ -4,9 +4,11 @@ import de.firemage.flork.flow.value.IntValueSet;
 import org.junit.jupiter.api.Test;
 import spoon.compiler.ModelBuildingException;
 
+import java.io.IOException;
+
 public class DispatchTest {
     @Test
-    void testDynamicDispatch() throws ModelBuildingException {
+    void testDynamicDispatch() throws ModelBuildingException, IOException {
         var code = """
             public class Foo {
                 public int foo(int x) {
@@ -35,7 +37,7 @@ public class DispatchTest {
             }
             """;
 
-        var context = TestUtil.getFlowContext(code, true);
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
         TestUtil.canReturn(IntValueSet.ofIntSingle(-1), analysis);

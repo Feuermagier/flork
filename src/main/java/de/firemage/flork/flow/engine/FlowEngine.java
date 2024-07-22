@@ -21,11 +21,6 @@ public class FlowEngine {
     private final FlowContext context;
     private Set<EngineState> states;
 
-    // Fields that have been written to in a given context
-    // Useful e.g. to reset all written fields after loops
-    // The stack represents nested contexts (i.e. blocks)
-    private final Deque<Set<VarId>> writtenLocalsAndOwnFields = new ArrayDeque<>();
-
     public FlowEngine(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
         this.states = new HashSet<>();
@@ -39,39 +34,33 @@ public class FlowEngine {
 
     public FlowEngine fork(ValueSet expectedTos) {
         return new FlowEngine(this.states.stream()
-            .map(EngineState::fork)
-            .filter(state -> state.assertTos(expectedTos))
-            .collect(Collectors.toCollection(HashSet::new)), this.context);
+                .map(EngineState::fork)
+                .filter(state -> state.assertTos(expectedTos))
+                .collect(Collectors.toCollection(HashSet::new)), this.context);
+    }
+
+    public FlowEngine cloneEngine() {
+        return new FlowEngine(this.states.stream()
+                .map(EngineState::fork)
+                .collect(Collectors.toCollection(HashSet::new)), this.context);
     }
 
     public void clear() {
         this.states.clear();
     }
 
-    public void startWriteRecorder() {
-        this.writtenLocalsAndOwnFields.push(new HashSet<>());
+    public void beginWritesScope() {
+        for (EngineState state : this.states) {
+            state.beginWritesScope();
+        }
+        this.log("beginWritesScope");
     }
 
-    public Set<VarId> endWriteRecorder() {
-        var fields = this.writtenLocalsAndOwnFields.pop();
-        if (fields == null) {
-            throw new IllegalStateException("No write recorder active");
+    public void endWritesScope() {
+        for (EngineState state : this.states) {
+            state.endWritesScope();
         }
-
-        // Add the written fields from the inner context to the enclosing context
-        var enclosingContext = this.writtenLocalsAndOwnFields.peek();
-        if (enclosingContext != null ) {
-            enclosingContext.addAll(fields);
-        }
-
-        return fields;
-    }
-
-    private void recordWrite(VarId localOrField) {
-        var context = this.writtenLocalsAndOwnFields.peek();
-        if (context != null) {
-            context.add(localOrField);
-        }
+        this.log("endWritesScope");
     }
 
     /**
@@ -126,11 +115,11 @@ public class FlowEngine {
         this.log("createLocal");
     }
 
-    public void resetFields(Collection<VarId> localsAndOwnFields) {
+    public void resetWrittenLocalsAndFields() {
         for (EngineState state : this.states) {
-            state.resetFields(localsAndOwnFields, true);
+            state.resetWrittenLocalsAndFields();
         }
-        this.log("resetFields");
+        this.log("resetWrittenFields");
     }
 
     public void pushValue(ValueSet value) {
@@ -165,17 +154,12 @@ public class FlowEngine {
         for (EngineState state : this.states) {
             state.storeVar(name);
         }
-        this.recordWrite(VarId.forLocal(name));
         this.log("storeLocal");
     }
 
     public void storeField(String name) {
         for (EngineState state : this.states) {
             state.storeField(name);
-        }
-        if (this.states.iterator().next().isTOSThis()) {
-            // We are writing to a field of this, so record it
-            this.recordWrite(VarId.forOwnField(name));
         }
         this.log("storeField");
     }

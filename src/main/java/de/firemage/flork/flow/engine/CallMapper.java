@@ -48,6 +48,8 @@ public class CallMapper {
         this.state.stack.push(this.state.createNewVarEntry(new VarState(returnState.value())));
 
         // Reset fields
+        // Even own fields may be transitively referenced by other objects and thus need to be reset
+        // Maybe the worst offender are lambdas, which may arbitrarily capture own fields
         this.state.resetAllFields();
 
         return this.state;

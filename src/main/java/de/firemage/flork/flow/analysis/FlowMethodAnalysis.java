@@ -11,6 +11,7 @@ import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
+import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.code.CtAnnotationFieldAccess;
 import spoon.reflect.code.CtAssignment;
@@ -23,6 +24,7 @@ import spoon.reflect.code.CtFieldRead;
 import spoon.reflect.code.CtFieldWrite;
 import spoon.reflect.code.CtIf;
 import spoon.reflect.code.CtInvocation;
+import spoon.reflect.code.CtLambda;
 import spoon.reflect.code.CtLiteral;
 import spoon.reflect.code.CtLocalVariable;
 import spoon.reflect.code.CtReturn;
@@ -200,6 +202,29 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 // Can't handle this for now, so play safeTypeId.ofFallible
                 engine.pushValue(ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(access.getAccessedType()), this.context));
             }
+            case CtLambda<?> lambda -> {
+                // Lambdas basically continue the current control flow, with a few additional variables (the lambda's parameters) added
+                // However, we need to make sure that the lambda's variables to captured variables are not immediately visible to the surrounding scope
+                // For locals, this is simple: Java requires all captured variables to be "effectively final", so we have to do nothing special here
+                // To avoid capturing any knowledge about fields, we clone the engine before analyzing the lambda
+
+                FlowEngine lambdaEngine = engine.cloneEngine();
+                for (CtParameter<?> parameter : lambda.getParameters()) {
+                    lambdaEngine.createLocal(parameter.getSimpleName(), new TypeId(parameter.getType()));
+                }
+
+                this.context.increaseIndentation();
+                this.context.log("=== Lambda Start === ");
+                if (lambda.getBody() != null) {
+                    analyzeBlock(lambda.getBody(), lambdaEngine);
+                } else {
+                    analyzeExpression(lambda.getExpression(), lambdaEngine);
+                }
+                this.context.log("=== Lambda End === ");
+                this.context.decreaseIndentation();
+
+                engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
+            }
             default -> throw new UnsupportedOperationException(expression.getClass().getName());
         }
 
@@ -368,7 +393,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         // for loops that are taken more than once
         // We also want to record the condition evaluation, since it may perform writes
         this.context.log("== while: first iteration " + engine.getCurrentStates().size() + "/" + totalStates);
-        engine.startWriteRecorder();
+        engine.beginWritesScope();
         analyzeStatement(loop.getBody(), engine);
 
         // Filter out states with a single iteration
@@ -383,7 +408,10 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         engine.pop();
 
         if (!engine.isImpossibleState()) {
-            engine.resetFields(engine.endWriteRecorder());
+            // Reset knowledge about written variables
+            engine.resetWrittenLocalsAndFields();
+            engine.endWritesScope();
+
             // The loop condition is false after the last iteration
             this.context.log("== while: third condition " + engine.getCurrentStates().size() + "/" + totalStates);
             analyzeExpression(loop.getLoopingExpression(), engine);

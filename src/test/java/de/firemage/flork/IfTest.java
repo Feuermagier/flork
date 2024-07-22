@@ -3,9 +3,11 @@ package de.firemage.flork;
 import de.firemage.flork.flow.value.IntValueSet;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+
 public class IfTest {
     @Test
-    void testSimpleIf() {
+    void testSimpleIf() throws IOException {
         var code = """
                 public class Foo {
                     public int foo(int x) {
@@ -20,7 +22,7 @@ public class IfTest {
                 }
                 """;
 
-        var context = TestUtil.getFlowContext(code, true);
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
         TestUtil.canReturn(IntValueSet.ofIntSingle(0), analysis);
@@ -29,7 +31,7 @@ public class IfTest {
     }
 
     @Test
-    void testIfInContext() {
+    void testIfInContext() throws IOException {
         var code = """
                 public class Foo {
                     public int foo(int x) {
@@ -51,14 +53,14 @@ public class IfTest {
                 }
                 """;
 
-        var context = TestUtil.getFlowContext(code, true);
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
         TestUtil.mustReturn(IntValueSet.ofIntSingle(2), analysis);
     }
 
     @Test
-    void testImpossibleIfBranch() {
+    void testImpossibleIfBranch() throws IOException {
         var code = """
                 public class Foo {
                     public int foo(int x) {
@@ -73,7 +75,7 @@ public class IfTest {
                 }
                 """;
 
-        var context = TestUtil.getFlowContext(code, true);
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
         TestUtil.canReturn(IntValueSet.ofIntSingle(0), analysis);

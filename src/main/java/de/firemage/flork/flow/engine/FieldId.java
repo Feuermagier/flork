@@ -7,6 +7,8 @@ package de.firemage.flork.flow.engine;
  * @param fieldName
  */
 public record FieldId(int parent, String fieldName) {
+    public static FieldId THIS = FieldId.forLocal("this");
+
     public static FieldId forLocal(String name) {
         return new FieldId(-1, name);
     }

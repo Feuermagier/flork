@@ -1,5 +1,6 @@
 package de.firemage.flork;
 
+import de.firemage.flork.compiler.InMemoryCompiler;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.ValueSet;
@@ -11,17 +12,22 @@ import spoon.support.compiler.FileSystemFile;
 import spoon.support.compiler.FileSystemFolder;
 import spoon.support.compiler.VirtualFile;
 
+import javax.tools.JavaFileManager;
+import javax.tools.StandardJavaFileManager;
+import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestUtil {
-    public static FlowContext getFlowContext(String fileContent, boolean closedWorld) {
+    public static FlowContext getFlowContext(String fileName, String fileContent, boolean closedWorld) throws IOException {
         return getFlowContext(new VirtualFile(fileContent), closedWorld);
     }
 
-    public static FlowContext getFlowContext(Path folder, boolean closedWorld) {
+    public static FlowContext getFlowContext(Path folder, boolean closedWorld) throws IOException {
         return getFlowContext(new FileSystemFolder(folder.toFile()), closedWorld);
     }
 
@@ -29,7 +35,7 @@ public class TestUtil {
         Launcher launcher = new Launcher();
         launcher.addInputResource(resource);
         launcher.addInputResource(new FileSystemFolder("jdk-minified"));
-        launcher.getEnvironment().setShouldCompile(false);
+        launcher.getEnvironment().setShouldCompile(true);
         launcher.getEnvironment().setNoClasspath(true);
         launcher.getEnvironment().setCommentEnabled(true);
         launcher.getEnvironment().setComplianceLevel(17);
@@ -59,5 +65,9 @@ public class TestUtil {
     public static void cannotReturn(ValueSet value, MethodAnalysis analysis) {
         boolean ok = analysis.getReturnStates().stream().noneMatch(r -> r.value().isSupersetOf(value));
         assertTrue(ok);
+    }
+
+    private static void compile(String fileContent) {
+        // var fileManager = new StandardJavaFileManager()
     }
 }

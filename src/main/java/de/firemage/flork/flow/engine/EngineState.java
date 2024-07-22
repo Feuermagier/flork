@@ -4,6 +4,7 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.SetStack;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
@@ -15,8 +16,10 @@ import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.declaration.CtParameter;
 
 import java.lang.reflect.Field;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -49,10 +52,15 @@ public class EngineState {
     // Store the current value of each field / local where we have any knowledge
     final Map<FieldId, SSAVarId> liveFields;
     // Maps vars to their *declared* type. Useful for resetting values
-    private final Map<VarId, TypeId> types;
+    private final Map<FieldId, TypeId> types;
     // Stores the *initial* value of each parameter & own field. Useful to construct preconditions for states - immutable
     // May contain null to indicate that we never used the initial value (but overwrite it)
     private final Map<VarId, Integer> initialFieldValues;
+
+    // Fields that have been written to in a given context
+    // Useful e.g. to reset all written fields after loops
+    // The stack represents nested contexts (i.e. blocks)
+    private final SetStack<FieldId> writtenLocalsAndOwnFields;
 
     public EngineState(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
@@ -71,7 +79,7 @@ public class EngineState {
                 throw new IllegalStateException("Value of THIS is unexpectedly not 0 - this is a bug");
             }
             this.fieldValues.put(thisSSA, THIS_VALUE); // Store the id to the this value and get its id (is always 0)
-            this.types.put(VarId.THIS, thisType); // Remember which type this is
+            this.types.put(FieldId.THIS, thisType); // Remember which type this is
         }
 
         for (CtParameter<?> parameter : parameters) {
@@ -81,10 +89,11 @@ public class EngineState {
             int value = this.createNewVarEntry(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context)));
             this.fieldValues.put(ssa, value);
             this.initialFieldValues.put(VarId.forLocal(parameter.getSimpleName()), value);
-            this.types.put(VarId.forLocal(fieldId.fieldName()), TypeId.ofFallible(parameter.getType()).orElseThrow());
+            this.types.put(FieldId.forLocal(fieldId.fieldName()), TypeId.ofFallible(parameter.getType()).orElseThrow());
         }
 
         this.stack = new ValueStack();
+        this.writtenLocalsAndOwnFields = new SetStack<>(2);
     }
 
     private EngineState(EngineState other) {
@@ -95,6 +104,7 @@ public class EngineState {
         this.fieldValues = new HashMap<>(other.fieldValues);
         this.types = new HashMap<>(other.types);
         this.initialFieldValues = new HashMap<>(other.initialFieldValues);
+        this.writtenLocalsAndOwnFields = new SetStack<>(other.writtenLocalsAndOwnFields);
     }
 
     public EngineState fork() {
@@ -116,21 +126,39 @@ public class EngineState {
         SSAVarId ssa = SSAVarId.forFresh(field);
         this.liveFields.put(field, ssa);
         this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(ValueSet.topForType(type, this.context))));
-        this.types.put(VarId.forLocal(name), type);
+        this.types.put(FieldId.forLocal(name), type);
     }
 
-    public void resetFields(Collection<VarId> fields, boolean resetAllNestedFields) {
+    public void beginWritesScope() {
+        this.writtenLocalsAndOwnFields.pushEmpty();
+    }
+
+    public void endWritesScope() {
+        var writes = this.writtenLocalsAndOwnFields.pop();
+        // Add writes from current context to enclosing context, since these are also writes inside the enclosing context
+        if (this.writtenLocalsAndOwnFields.peek() != null) {
+            this.writtenLocalsAndOwnFields.addAllToLast(writes);
+        }
+    }
+
+    public void resetWrittenLocalsAndFields() {
+        // We reset all locals and own fields that have been written to in the current context
+        // We unconditionally reset all "transitive fields" (i.e. fields of fields of this)
         this.liveFields.entrySet().removeIf(f -> {
             // Edit the entry of locals to their respective top type
-            if (fields.contains(this.buildVarId(f.getKey()))) {
+            if (this.writtenLocalsAndOwnFields.peek().contains(f.getKey())) {
                 SSAVarId ssa = f.getValue().next();
-                ValueSet newValue = ValueSet.topForType(this.types.get(this.buildVarId(f.getKey())), this.context);
+                ValueSet newValue = ValueSet.topForType(this.types.get(f.getKey()), this.context);
                 this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(newValue)));
                 f.setValue(ssa);
                 return false;
             }
-            return resetAllNestedFields && !f.getKey().isLocalOrOwnField();
+            return !f.getKey().isLocalOrOwnField();
         });
+    }
+
+    public void resetTransitiveFields() {
+        this.liveFields.entrySet().removeIf(f -> !f.getKey().isLocalOrOwnField());
     }
 
     public void resetAllFields() {
@@ -153,17 +181,16 @@ public class EngineState {
         int parent = this.stack.pop();
 
         // Parent cannot be null
-        VarState parentState = this.varsState.get(parent);
-        this.varsState.set(parent, new VarState(((ObjectValueSet) parentState.value()).asNonNull(),
-            parentState.relations()));
-
-        TypeId type = ((ObjectValueSet) parentState.value()).getFieldType(field);
+        this.assertNonNull(parent);
 
         SSAVarId ssaId = this.liveFields.computeIfAbsent(new FieldId(parent, field), id -> {
+            VarState parentState = this.varsState.get(parent);
+            TypeId type = ((ObjectValueSet) parentState.value()).getFieldType(field);
+
             ValueSet value = ValueSet.topForType(type, this.context);
             SSAVarId ssa = SSAVarId.forFresh(id);
             this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(value)));
-            this.types.put(this.buildVarId(id), type); // Record the type of the field
+            this.types.put(id, type); // Record the type of the field
             return ssa;
         });
         this.stack.push(this.fieldValues.get(ssaId));
@@ -179,6 +206,7 @@ public class EngineState {
         SSAVarId ssa = this.liveFields.get(fieldId).next();
         this.liveFields.put(fieldId, ssa);
         this.fieldValues.put(ssa, this.stack.peek());
+        this.recordWrite(fieldId);
     }
 
     public void storeField(String name) {
@@ -187,6 +215,10 @@ public class EngineState {
         SSAVarId ssa = this.liveFields.computeIfAbsent(fieldId, SSAVarId::forFresh).next();
         this.liveFields.put(fieldId, ssa);
         this.fieldValues.put(ssa, this.stack.peek());
+
+        if (objValue == THIS_VALUE) {
+            this.recordWrite(fieldId);
+        }
 
         // We know that the object cannot be null, or an exception would have been thrown
         VarState oldState = this.varsState.get(objValue);
@@ -426,6 +458,8 @@ public class EngineState {
 
     public List<EngineState> callVirtual(CachedMethod method) {
         int thisVar = this.stack.peek(method.getExecutable().getParameters().size());
+        this.assertNonNull(thisVar);
+
         if (((ObjectValueSet) this.varsState.get(thisVar).value()).isExact()) {
             return this.call(-1, method.getFixedCallAnalysis());
         } else {
@@ -460,12 +494,16 @@ public class EngineState {
 
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
+            // No analysis available, so assume the worst and reset everything
+            for (int i = 0; i < method.getMethod().getExecutable().getParameters().size(); i++) {
+                this.pop();
+            }
             this.resetAllFields();
             return List.of(this);
         }
 
         // We don't know what happened to non-own fields
-        this.resetFields(List.of(), true);
+        this.resetTransitiveFields();
 
         Map<VarId, Integer> knownValues = new HashMap<>(method.getOrderedParameterNames().size());
 
@@ -510,16 +548,19 @@ public class EngineState {
         }
     }
 
-    private VarId buildVarId(FieldId field) {
-        if (field.isLocal()) {
-            return VarId.forLocal(field.fieldName());
+    void assertNonNull(int id) {
+        var oldState = this.varsState.get(id);
+        this.varsState.set(id, new VarState(((ObjectValueSet) oldState.value()).asNonNull(), oldState.relations()));
+    }
+
+    private void recordWrite(FieldId field) {
+        if (!field.isLocalOrOwnField()) {
+            throw new IllegalArgumentException("Cannot write to non-local field " + field);
         }
-        FieldId parent = this.fieldValues.entrySet().stream()
-            .filter(e -> e.getValue() == field.parent())
-            .findAny()
-            .orElseThrow()
-            .getKey().fieldId();
-        return buildVarId(parent).resolveField(field.fieldName());
+
+        if (this.writtenLocalsAndOwnFields.peek() != null) {
+            this.writtenLocalsAndOwnFields.addToLast(field);
+        }
     }
 
     private void tryAssertRelation(int lhs, int rhs, Relation relation) {

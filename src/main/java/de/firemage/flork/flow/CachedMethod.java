@@ -5,6 +5,7 @@ import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.analysis.StubMethodAnalysis;
 import de.firemage.flork.flow.annotation.FlorkOpaque;
 import spoon.reflect.declaration.CtMethod;
+import spoon.reflect.declaration.ModifierKind;
 import spoon.reflect.reference.CtExecutableReference;
 
 import java.util.List;
@@ -37,7 +38,7 @@ public class CachedMethod {
                 || method.isStatic()
                 || method.getDeclaration() instanceof CtMethod m && m.isPrivate()
                 || method.isFinal()
-                || method.getDeclaringType() != null && method.getDeclaringType().getDeclaration().isFinal()
+                || method.getDeclaringType() != null && method.getDeclaringType().getModifiers().contains(ModifierKind.FINAL)
                 || context.isClosedWorld() && TypeUtil.getAllOverridingMethods(this.method, this.context).findAny().isEmpty();
     }
 

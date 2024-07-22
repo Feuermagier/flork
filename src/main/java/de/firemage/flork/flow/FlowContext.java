@@ -5,6 +5,7 @@ import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtClass;
+import spoon.reflect.declaration.CtInterface;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.factory.Factory;
 import spoon.reflect.reference.CtExecutableReference;
@@ -79,11 +80,21 @@ public class FlowContext {
     }
 
     public boolean isEffectivelyFinalType(TypeId type) {
-        if (type.type().getDeclaration() != null && type.type().getDeclaration().isFinal()) {
+        if (type.type() instanceof CtInterface<?>) {
+            return false;
+        } else if (type.type().getDeclaration() == null) {
+            // E.g. JDK classes
+            return false;
+        } else if (type.type().getDeclaration().isFinal()) {
+            // Final classes are obviously effectively final
             return true;
-        } else {
-            return this.closedWorld && this.getAllTypes().noneMatch(t -> t.isSubtypeOf(type) && !t.equals(type));
+        } else if (this.closedWorld) {
+            // In a closed world, we know all potential implementers
+            // We don't need to consider lambdas here, since lambdas can only implement interfaces
+            // and interfaces are caught by the first if
+            return this.getAllTypes().noneMatch(t -> t.isSubtypeOf(type) && !t.equals(type));
         }
+        return false;
     }
 
     public ValueSet getExpressionValue(CtExpression<?> expression) {

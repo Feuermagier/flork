@@ -38,9 +38,17 @@ public class StubMethodAnalysis implements MethodAnalysis {
     }
 
     public static StubMethodAnalysis forReferencedExecutable(CachedMethod method, FlowContext context) {
+        var executable = method.getExecutable();
+
         var paramNames = new ArrayList<VarId>();
         var paramTypes = new HashMap<VarId, TypeId>();
-        var parameters = method.getExecutable().getParameters();
+        var parameters = executable.getParameters();
+
+        if (!executable.isStatic()) {
+            paramNames.add(VarId.forLocal("this"));
+            paramTypes.put(VarId.THIS, new TypeId(executable.getDeclaringType()));
+        }
+
         for (int i = 0; i < parameters.size(); i++) {
             VarId param = VarId.forLocal("p" + i);
             paramTypes.put(param, new TypeId(parameters.get(i)));
