@@ -4,14 +4,16 @@ import de.firemage.flork.flow.value.IntValueSet;
 import org.junit.jupiter.api.Test;
 import spoon.compiler.ModelBuildingException;
 
-class MethodAnalysisTest {
-    private static final String CODE = """
-            public class Foo {     
+public class DispatchTest {
+    @Test
+    void testDynamicDispatch() throws ModelBuildingException {
+        var code = """
+            public class Foo {
                 public int foo(int x) {
                     int foo = this.bar(x);
                     return foo;
                 }
-                        
+            
                 public int bar(int x) {
                     if (x == 1) {
                         return 0;
@@ -20,7 +22,7 @@ class MethodAnalysisTest {
                     }
                 }
             }
-                        
+            
             class Bar extends Foo {
                 @Override
                 public int bar(int x) {
@@ -32,9 +34,8 @@ class MethodAnalysisTest {
                 }
             }
             """;
-    @Test
-    public void testFlow() throws ModelBuildingException {
-        var context = TestUtil.getFlowContext(CODE, true);
+
+        var context = TestUtil.getFlowContext(code, true);
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
         TestUtil.canReturn(IntValueSet.ofIntSingle(-1), analysis);

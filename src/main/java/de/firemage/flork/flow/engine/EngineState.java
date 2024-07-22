@@ -49,7 +49,7 @@ public class EngineState {
     // Store the current value of each field / local where we have any knowledge
     final Map<FieldId, SSAVarId> liveFields;
     // Maps vars to their *declared* type. Useful for resetting values
-    private final Map<FieldId, TypeId> types;
+    private final Map<VarId, TypeId> types;
     // Stores the *initial* value of each parameter & own field. Useful to construct preconditions for states - immutable
     // May contain null to indicate that we never used the initial value (but overwrite it)
     private final Map<VarId, Integer> initialFieldValues;
@@ -71,7 +71,7 @@ public class EngineState {
                 throw new IllegalStateException("Value of THIS is unexpectedly not 0 - this is a bug");
             }
             this.fieldValues.put(thisSSA, THIS_VALUE); // Store the id to the this value and get its id (is always 0)
-            this.types.put(FieldId.THIS, thisType); // Remember which type this is
+            this.types.put(VarId.THIS, thisType); // Remember which type this is
         }
 
         for (CtParameter<?> parameter : parameters) {

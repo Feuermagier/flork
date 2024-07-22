@@ -13,6 +13,7 @@ import spoon.support.compiler.VirtualFile;
 
 import java.nio.file.Path;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TestUtil {
@@ -48,6 +49,11 @@ public class TestUtil {
     public static void canReturn(ValueSet value, MethodAnalysis analysis) {
         boolean ok = analysis.getReturnStates().stream().anyMatch(r -> r.value().isSupersetOf(value));
         assertTrue(ok);
+    }
+
+    public static void mustReturn(ValueSet value, MethodAnalysis analysis) {
+        assertEquals(1, analysis.getReturnStates().size());
+        assertEquals(value, analysis.getReturnStates().getFirst().value());
     }
 
     public static void cannotReturn(ValueSet value, MethodAnalysis analysis) {
