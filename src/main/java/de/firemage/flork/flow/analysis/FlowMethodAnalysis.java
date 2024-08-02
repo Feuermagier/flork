@@ -2,7 +2,7 @@ package de.firemage.flork.flow.analysis;
 
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
-import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.FlowEngine;
 import de.firemage.flork.flow.engine.Relation;
@@ -11,7 +11,6 @@ import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
-import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.code.CtAnnotationFieldAccess;
 import spoon.reflect.code.CtAssignment;
@@ -45,7 +44,7 @@ import java.util.List;
 public class FlowMethodAnalysis implements MethodAnalysis {
     private final FlowContext context;
     private final CachedMethod method;
-    private final List<VarId> parameterNames;
+    private final List<String> parameterNames;
     private final List<MethodExitState> returnStates;
     private final boolean effectivelyVoid;
 
@@ -60,7 +59,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         TypeId thisType = method.getThisType().orElse(null);
         ObjectValueSet thisPointer = null;
         if (thisType != null) {
-            parameterNames.add(VarId.forLocal("this")); // this is the first parameter
+            parameterNames.add("this"); // this is the first parameter
 
             // Construct the possible values of the this-pointer
             if (context.isEffectivelyFinalType(thisType)) {
@@ -74,11 +73,11 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
         // Other parameters
         for (CtParameter<?> parameter : executable.getParameters()) {
-            parameterNames.add(VarId.forLocal(parameter.getSimpleName()));
+            parameterNames.add(parameter.getSimpleName());
         }
 
-        this.context.increaseIndentation();
-        this.context.log("=============== " + this.method.getName() + " ===============");
+        this.context.pushLocation();
+        this.context.logNoPrefix("=============== " + this.method.getName() + " ===============");
 
         FlowEngine engine = new FlowEngine(thisType, thisPointer, executable.getParameters(), this.context);
         analyzeBlock(executable.getBody(), engine);
@@ -97,8 +96,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         }
 
         this.context.log(this.getReturnStates().size() + " return states: " + this.getReturnStates());
-        this.context.log("================== " + this.method.getName() + " completed ==================");
-        this.context.decreaseIndentation();
+        this.context.logNoPrefix("================== " + this.method.getName() + " completed ==================");
+        this.context.popLocation();
     }
 
     public static MethodAnalysis analyzeMethod(CachedMethod method, CtExecutable<?> executable, FlowContext context) {
@@ -116,7 +115,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     @Override
-    public List<VarId> getOrderedParameterNames() {
+    public List<String> getOrderedParameterNames() {
         return this.parameterNames;
     }
 
@@ -127,6 +126,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeStatement(CtStatement statement, FlowEngine engine) {
+        this.context.setCurrentElement(statement);
         switch (statement) {
             case CtExpression<?> expression -> {
                 analyzeExpression(expression, engine);
@@ -170,6 +170,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeExpression(CtExpression<?> expression, FlowEngine engine) {
+        this.context.setCurrentElement(expression);
         switch (expression) {
             case CtAssignment<?, ?> assignment -> analyzeAssignment(assignment, engine);
             case CtVariableRead<?> read -> analyzeRead(read, engine);
@@ -213,15 +214,15 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                     lambdaEngine.createLocal(parameter.getSimpleName(), new TypeId(parameter.getType()));
                 }
 
-                this.context.increaseIndentation();
-                this.context.log("=== Lambda Start === ");
+                this.context.pushLocation();
+                this.context.logNoPrefix("=== Lambda Start === ");
                 if (lambda.getBody() != null) {
                     analyzeBlock(lambda.getBody(), lambdaEngine);
                 } else {
                     analyzeExpression(lambda.getExpression(), lambdaEngine);
                 }
-                this.context.log("=== Lambda End === ");
-                this.context.decreaseIndentation();
+                this.context.logNoPrefix("=== Lambda End === ");
+                this.context.popLocation();
 
                 engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
             }
@@ -326,10 +327,13 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         } else {
             engine.callVirtual(calledMethod);
         }
+
+        this.context.setCurrentElement(invocation);
     }
 
     private void analyzeConstructorCall(CtConstructorCall<?> call, FlowEngine engine) {
         CachedMethod calledMethod = this.context.getCachedMethod(call.getExecutable());
+        this.context.setCurrentElement(call);
 
         // Create and push the new object as the this-pointer for the method
         engine.pushValue(
@@ -427,7 +431,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     private List<MethodExitState> buildExitStates(FlowEngine engine) {
         return engine.getCurrentStates().stream()
                 .map(
-                        s -> new MethodExitState(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getInitialState()))
+                        s -> MethodExitState.forReturn(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getInitialState()))
                 .toList();
     }
 }

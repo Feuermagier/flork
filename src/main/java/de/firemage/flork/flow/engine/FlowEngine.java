@@ -3,6 +3,7 @@ package de.firemage.flork.flow.engine;
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
+import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
@@ -14,35 +15,52 @@ import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class FlowEngine {
     private final FlowContext context;
-    private Set<EngineState> states;
+    private List<EngineState> states;
+    private List<EngineState> exceptionalStates;
 
     public FlowEngine(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
-        this.states = new HashSet<>();
+        this.states = new ArrayList<>();
+        this.exceptionalStates = new ArrayList<>();
         this.states.add(new EngineState(thisType, thisPointer, parameters, context));
     }
 
-    private FlowEngine(Set<EngineState> states, FlowContext context) {
+    private FlowEngine(List<EngineState> states, FlowContext context) {
         this.context = context;
         this.states = states;
+        this.exceptionalStates = new ArrayList<>();
     }
 
     public FlowEngine fork(ValueSet expectedTos) {
         return new FlowEngine(this.states.stream()
                 .map(EngineState::fork)
                 .filter(state -> state.assertTos(expectedTos))
-                .collect(Collectors.toCollection(HashSet::new)), this.context);
+                .collect(Collectors.toCollection(ArrayList::new)), this.context);
+    }
+
+    public FlowEngine extractExceptionalStatesForHandler(TypeId type) {
+        var handledStates = new ArrayList<EngineState>();
+        this.exceptionalStates.removeIf(state -> {
+            if (state.hasActiveException() && state.activeException.isSubtypeOf(type)) {
+                state.clearActiveException();
+                handledStates.add(state);
+                return true;
+            }
+            return false;
+        });
+        return new FlowEngine(handledStates, this.context);
     }
 
     public FlowEngine cloneEngine() {
         return new FlowEngine(this.states.stream()
                 .map(EngineState::fork)
-                .collect(Collectors.toCollection(HashSet::new)), this.context);
+                .collect(Collectors.toCollection(ArrayList::new)), this.context);
     }
 
     public void clear() {
@@ -104,113 +122,84 @@ public class FlowEngine {
         return this.states.stream().map(EngineState::peek).toList();
     }
 
-    public Set<EngineState> getCurrentStates() {
+    public List<EngineState> getCurrentStates() {
         return this.states;
     }
 
     public void createLocal(String name, TypeId type) {
-        for (EngineState state : this.states) {
-            state.createVariable(name, type);
-        }
+        this.forEachState(state -> state.createVariable(name, type));
         this.log("createLocal");
     }
 
     public void resetWrittenLocalsAndFields() {
-        for (EngineState state : this.states) {
-            state.resetWrittenLocalsAndFields();
-        }
+        // A simple loop should be enough since no state should become exceptional here, but whatever
+        this.forEachState(EngineState::resetWrittenLocalsAndFields);
         this.log("resetWrittenFields");
     }
 
     public void pushValue(ValueSet value) {
-        for (EngineState state : this.states) {
-            state.pushValue(value);
-        }
+        this.forEachState(state -> state.pushValue(value));
         this.log("push " + value);
     }
 
     public void pushThis() {
-        for (EngineState state : this.states) {
-            state.pushThis();
-        }
+        this.forEachState(EngineState::pushThis);
         this.log("pushThis");
     }
 
     public void pushLocal(String name) {
-        for (EngineState state : this.states) {
-            state.pushVar(name);
-        }
+        this.forEachState(state -> state.pushVar(name));
         this.log("pushLocal");
     }
 
     public void pushField(String name) {
-        for (EngineState state : this.states) {
-            state.pushField(name);
-        }
+        this.forEachState(state -> state.pushField(name));
         this.log("pushField");
     }
 
     public void storeLocal(String name) {
-        for (EngineState state : this.states) {
-            state.storeVar(name);
-        }
+        this.forEachState(state -> state.storeVar(name));
         this.log("storeLocal");
     }
 
     public void storeField(String name) {
-        for (EngineState state : this.states) {
-            state.storeField(name);
-        }
+        this.forEachState(state -> state.storeField(name));
         this.log("storeField");
     }
 
     public void pop() {
-        for (EngineState state : this.states) {
-            state.pop();
-        }
+        this.forEachState(EngineState::pop);
         this.log("pop");
     }
 
     public void negate() {
-        for (EngineState state : this.states) {
-            state.negate();
-        }
+        this.forEachState(EngineState::negate);
         this.log("negate");
     }
 
     public void add() {
-        for (EngineState state : this.states) {
-            state.add();
-        }
+        this.forEachState(EngineState::add);
         this.log("add");
     }
 
     public void subtract() {
-        for (EngineState state : this.states) {
-            state.subtract();
-        }
+        this.forEachState(EngineState::subtract);
         this.log("subtract");
     }
 
     public void multiply() {
-        for (EngineState state : this.states) {
-            state.multiply();
-        }
+        this.forEachState(EngineState::multiply);
         this.log("multiply");
     }
 
     public void divide() {
-        for (EngineState state : this.states) {
-            state.divide();
-        }
+        this.forEachState(EngineState::divide);
         this.log("divide");
     }
 
 
     public void not() {
-        for (EngineState state : this.states) {
-            state.not();
-        }
+        this.forEachState(EngineState::not);
         this.log("not");
     }
 
@@ -246,11 +235,33 @@ public class FlowEngine {
 
     @Override
     public String toString() {
-        return "Current states (" + this.states.size() + "): " + this.states;
+        return "States (" + this.states.size() + "): " + this.states;
+    }
+
+    private void forEachState(Consumer<EngineState> fn) {
+        this.states.removeIf(state -> {
+            fn.accept(state);
+            if (state.hasActiveException()) {
+                this.exceptionalStates.add(state);
+                return true;
+            }
+            return false;
+        });
     }
 
     private void collectStates(Function<EngineState, List<EngineState>> fn) {
-        this.states = this.states.stream().flatMap(s -> fn.apply(s).stream()).collect(Collectors.toSet());
+        List<EngineState> newStates = new ArrayList<>(this.states.size());
+        for (var state : this.states) {
+            var newStatesForState = fn.apply(state);
+            for (var newState : newStatesForState) {
+                if (newState.hasActiveException()) {
+                    this.exceptionalStates.add(newState);
+                } else {
+                    newStates.add(newState);
+                }
+            }
+        }
+        this.states = newStates;
     }
 
     private void log(String instruction) {

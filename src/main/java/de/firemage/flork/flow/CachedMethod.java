@@ -120,17 +120,17 @@ public class CachedMethod {
     private MethodAnalysis getLocalAnalysis() {
         if (this.localAnalysis == null) {
             if (this.context.getHardcodedMethods().getForMethod(this.method).isPresent()) {
-                this.context.log("= Using hardcoded analysis of " + this.getName());
+                this.context.logNoPrefix("=== Using hardcoded analysis of " + this.getName());
                 this.localAnalysis = this.context.getHardcodedMethods().getForMethod(this.method).get();
             } else if (this.method.getDeclaration() != null) {
                 // Method is present in the classpath
                 this.localAnalysis = FlowMethodAnalysis.analyzeMethod(this, this.method.getDeclaration(), this.context);
             } else {
-                this.context.log("= Using stub analysis for " + this.getName());
+                this.context.logNoPrefix("=== Using stub analysis for " + this.getName());
                 this.localAnalysis = StubMethodAnalysis.forReferencedExecutable(this, this.context);
             }
         } else {
-            this.context.log("= Retrieved cached analysis of " + this.method.getSignature());
+            this.context.logNoPrefix("=== Retrieved cached analysis of " + this.method.getSignature());
         }
         return this.localAnalysis;
     }

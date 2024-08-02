@@ -3,7 +3,7 @@ package de.firemage.flork.flow.engine;
 import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
-import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.SetStack;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
@@ -15,11 +15,7 @@ import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.declaration.CtParameter;
 
-import java.lang.reflect.Field;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -47,48 +43,42 @@ public class EngineState {
 
     // The current state of the stack
     final ValueStack stack;
-    // Maps each SSAVarId to its current value
-    final Map<SSAVarId, Integer> fieldValues;
     // Store the current value of each field / local where we have any knowledge
-    final Map<FieldId, SSAVarId> liveFields;
+    final Map<FieldId, Integer> liveFields;
     // Maps vars to their *declared* type. Useful for resetting values
     private final Map<FieldId, TypeId> types;
-    // Stores the *initial* value of each parameter & own field. Useful to construct preconditions for states - immutable
-    // May contain null to indicate that we never used the initial value (but overwrite it)
-    private final Map<VarId, Integer> initialFieldValues;
+    // Stores the *initial* value of each parameter. Useful to construct preconditions for states - immutable
+    private final List<Integer> initialParamValues;
 
     // Fields that have been written to in a given context
     // Useful e.g. to reset all written fields after loops
     // The stack represents nested contexts (i.e. blocks)
     private final SetStack<FieldId> writtenLocalsAndOwnFields;
 
+    TypeId activeException = null;
+
     public EngineState(TypeId thisType, ObjectValueSet thisPointer, List<CtParameter<?>> parameters, FlowContext context) {
         this.context = context;
 
-        this.fieldValues = new HashMap<>(parameters.size() + 1);
         this.liveFields = new HashMap<>(parameters.size() + 1);
         this.varsState = new ArrayList<>(parameters.size() + 1);
         this.types = new HashMap<>(parameters.size() + 1);
-        this.initialFieldValues = new HashMap<>(parameters.size());
+        this.initialParamValues = new ArrayList<>(parameters.size() + 1);
 
         if (thisPointer != null) {
-            FieldId thisId = FieldId.forLocal("this");
-            SSAVarId thisSSA = SSAVarId.forFresh(thisId);
-            this.liveFields.put(thisId, thisSSA); // this is alive, and maps to our created SSA value
             if (this.createNewVarEntry(new VarState(thisPointer)) != THIS_VALUE) {
                 throw new IllegalStateException("Value of THIS is unexpectedly not 0 - this is a bug");
             }
-            this.fieldValues.put(thisSSA, THIS_VALUE); // Store the id to the this value and get its id (is always 0)
+            this.liveFields.put(FieldId.THIS, THIS_VALUE); // Store the id to the this value
+            this.initialParamValues.add(THIS_VALUE);
             this.types.put(FieldId.THIS, thisType); // Remember which type this is
         }
 
         for (CtParameter<?> parameter : parameters) {
             FieldId fieldId = FieldId.forLocal(parameter.getSimpleName());
-            SSAVarId ssa = SSAVarId.forFresh(fieldId);
-            this.liveFields.put(fieldId, ssa);
             int value = this.createNewVarEntry(new VarState(ValueSet.topForType(new TypeId(parameter.getType()), this.context)));
-            this.fieldValues.put(ssa, value);
-            this.initialFieldValues.put(VarId.forLocal(parameter.getSimpleName()), value);
+            this.liveFields.put(fieldId, value);
+            this.initialParamValues.add(value);
             this.types.put(FieldId.forLocal(fieldId.fieldName()), TypeId.ofFallible(parameter.getType()).orElseThrow());
         }
 
@@ -101,31 +91,31 @@ public class EngineState {
         this.varsState = new ArrayList<>(other.varsState);
         this.stack = new ValueStack(other.stack);
         this.liveFields = new HashMap<>(other.liveFields);
-        this.fieldValues = new HashMap<>(other.fieldValues);
         this.types = new HashMap<>(other.types);
-        this.initialFieldValues = new HashMap<>(other.initialFieldValues);
+        this.initialParamValues = new ArrayList<>(other.initialParamValues);
         this.writtenLocalsAndOwnFields = new SetStack<>(other.writtenLocalsAndOwnFields);
+        this.activeException = other.activeException;
     }
 
     public EngineState fork() {
         return new EngineState(this);
     }
 
-    public Map<VarId, VarState> getInitialState() {
-        Map<VarId, VarState> paramStates = new HashMap<>(this.initialFieldValues.size());
-        for (var field : this.initialFieldValues.entrySet()) {
-            VarState state = this.varsState.get(field.getValue());
-            //TODO add relations to other initial values
-            paramStates.put(field.getKey(), new VarState(state.value()));
-        }
-        return paramStates;
+    public boolean hasActiveException() {
+        return this.activeException != null;
+    }
+
+    public void clearActiveException() {
+        this.activeException = null;
+    }
+
+    public List<ValueSet> getInitialState() {
+        return this.initialParamValues.stream().map(this.varsState::get).map(VarState::value).toList();
     }
 
     public void createVariable(String name, TypeId type) {
         FieldId field = FieldId.forLocal(name);
-        SSAVarId ssa = SSAVarId.forFresh(field);
-        this.liveFields.put(field, ssa);
-        this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(ValueSet.topForType(type, this.context))));
+        this.liveFields.put(field, this.createNewVarEntry(new VarState(ValueSet.topForType(type, this.context))));
         this.types.put(FieldId.forLocal(name), type);
     }
 
@@ -147,10 +137,8 @@ public class EngineState {
         this.liveFields.entrySet().removeIf(f -> {
             // Edit the entry of locals to their respective top type
             if (this.writtenLocalsAndOwnFields.peek().contains(f.getKey())) {
-                SSAVarId ssa = f.getValue().next();
                 ValueSet newValue = ValueSet.topForType(this.types.get(f.getKey()), this.context);
-                this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(newValue)));
-                f.setValue(ssa);
+                f.setValue(this.createNewVarEntry(new VarState(newValue)));
                 return false;
             }
             return !f.getKey().isLocalOrOwnField();
@@ -174,7 +162,7 @@ public class EngineState {
     }
 
     public void pushVar(String variable) {
-        this.stack.push(this.fieldValues.get(this.liveFields.get(FieldId.forLocal(variable))));
+        this.stack.push(this.liveFields.get(FieldId.forLocal(variable)));
     }
 
     public void pushField(String field) {
@@ -183,38 +171,29 @@ public class EngineState {
         // Parent cannot be null
         this.assertNonNull(parent);
 
-        SSAVarId ssaId = this.liveFields.computeIfAbsent(new FieldId(parent, field), id -> {
+        var fieldId = new FieldId(parent, field);
+
+        int value = this.liveFields.computeIfAbsent(fieldId, id -> {
             VarState parentState = this.varsState.get(parent);
             TypeId type = ((ObjectValueSet) parentState.value()).getFieldType(field);
 
-            ValueSet value = ValueSet.topForType(type, this.context);
-            SSAVarId ssa = SSAVarId.forFresh(id);
-            this.fieldValues.put(ssa, this.createNewVarEntry(new VarState(value)));
+            int valueId = this.createNewVarEntry(new VarState(ValueSet.topForType(type, this.context)));
             this.types.put(id, type); // Record the type of the field
-            return ssa;
+            return valueId;
         });
-        this.stack.push(this.fieldValues.get(ssaId));
-
-        if (parent == THIS_VALUE) {
-            // Remember the first known field value
-            this.initialFieldValues.computeIfAbsent(VarId.forOwnField(field), varId -> this.fieldValues.get(ssaId));
-        }
+        this.stack.push(this.liveFields.get(fieldId));
     }
 
     public void storeVar(String variable) {
         FieldId fieldId = FieldId.forLocal(variable);
-        SSAVarId ssa = this.liveFields.get(fieldId).next();
-        this.liveFields.put(fieldId, ssa);
-        this.fieldValues.put(ssa, this.stack.peek());
+        this.liveFields.put(fieldId, this.stack.peek());
         this.recordWrite(fieldId);
     }
 
     public void storeField(String name) {
         int objValue = this.stack.pop();
         FieldId fieldId = FieldId.forField(objValue, name);
-        SSAVarId ssa = this.liveFields.computeIfAbsent(fieldId, SSAVarId::forFresh).next();
-        this.liveFields.put(fieldId, ssa);
-        this.fieldValues.put(ssa, this.stack.peek());
+        this.liveFields.put(fieldId, this.stack.peek());
 
         if (objValue == THIS_VALUE) {
             this.recordWrite(fieldId);
@@ -223,12 +202,7 @@ public class EngineState {
         // We know that the object cannot be null, or an exception would have been thrown
         VarState oldState = this.varsState.get(objValue);
         this.varsState.set(objValue, new VarState(((ObjectValueSet) oldState.value()).asNonNull(),
-            oldState.relations()));
-
-        if (objValue == THIS_VALUE) {
-            // If we don't assume an initial value for the field yet, we will never assume any since it is now overridden
-            this.initialFieldValues.putIfAbsent(VarId.forOwnField(name), null);
-        }
+                oldState.relations()));
     }
 
     public void pop() {
@@ -442,7 +416,7 @@ public class EngineState {
                 // "this" is the true path, other is the false path
                 EngineState notFulfilledState = this.fork();
                 notFulfilledState.stack.push(
-                    notFulfilledState.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
+                        notFulfilledState.createNewVarEntry(new VarState(BooleanValueSet.of(false))));
                 notFulfilledState.tryAssertRelation(lhs, rhs, relation.negate());
 
                 this.stack.push(this.createNewVarEntry(new VarState(BooleanValueSet.of(true))));
@@ -467,8 +441,8 @@ public class EngineState {
             for (MethodAnalysis analysis : method.getVirtualCallAnalyses()) {
                 EngineState state = this.fork();
                 ObjectValueSet requiredThis =
-                    ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL,
-                        analysis.getMethod().getThisType().orElseThrow(), this.context);
+                        ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL,
+                                analysis.getMethod().getThisType().orElseThrow(), this.context);
 
                 state.assertVarValue(thisVar, requiredThis);
                 resultStates.addAll(state.call(thisVar, analysis));
@@ -481,17 +455,6 @@ public class EngineState {
         return this.call(-1, method.getFixedCallAnalysis());
     }
 
-    // Recursively creates a mapping between (string-based) field paths and values
-    private void collectFieldValues(VarId parent, int id, Map<VarId, Integer> knownValues) {
-        for (var fieldId : this.fieldValues.entrySet()) {
-            if (fieldId.getKey().fieldId().parent() == id) {
-                VarId path = parent.resolveField(fieldId.getKey().fieldId().fieldName());
-                knownValues.put(path, fieldId.getValue());
-                this.collectFieldValues(path, fieldId.getValue(), knownValues);
-            }
-        }
-    }
-
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             // No analysis available, so assume the worst and reset everything
@@ -502,29 +465,47 @@ public class EngineState {
             return List.of(this);
         }
 
+        int parameterCount = method.getOrderedParameterNames().size();
+
         // We don't know what happened to non-own fields
         this.resetTransitiveFields();
 
-        Map<VarId, Integer> knownValues = new HashMap<>(method.getOrderedParameterNames().size());
-
         // Extract the parameters
-        var orderedParameters = method.getOrderedParameterNames();
-        for (int i = orderedParameters.size() - 1; i >= 0; i--) {
-            var param = orderedParameters.get(i);
-            knownValues.put(param, this.stack.pop());
-        }
-
-        if (callee >= 0) {
-            // Map known fields
-            this.collectFieldValues(VarId.THIS, callee, knownValues);
+        List<Integer> parameters = new ArrayList<>(parameterCount);
+        for (int i = method.getOrderedParameterNames().size() - 1; i >= 0; i--) {
+            parameters.add(this.stack.pop());
         }
 
         List<EngineState> result = new ArrayList<>();
-        for (MethodExitState returnState : method.getReturnStates()) {
-            EngineState newState = new CallMapper(this, returnState, knownValues).map();
-            if (newState != null) {
-                result.add(newState);
+        returnState:
+        for (MethodExitState exitState : method.getReturnStates()) {
+            var precondition = exitState.getParameterPrecondition();
+
+            // Check whether the preconditions apply
+            for (int i = 0; i < parameterCount; i++) {
+                var param = this.varsState.get(parameters.get(i)).value();
+                if (!precondition.get(i).isCompatible(param)) {
+                    break returnState;
+                }
             }
+
+            // The preconditions apply, so fork the engine and narrow parameters down to the preconditions
+            EngineState newState = this.fork();
+            for (int i = 0; i < parameterCount; i++) {
+                newState.assertVarValue(parameters.get(i), precondition.get(i));
+            }
+
+            // Handle exit state
+            if (exitState.getReturnValue() != null) {
+                // Normal return
+                var returnValue = newState.createNewVarEntry(new VarState(exitState.getReturnValue()));
+                newState.stack.push(returnValue);
+            } else {
+                // Exception thrown
+                newState.activeException = exitState.getThrownException();
+            }
+
+            result.add(newState);
         }
         return result;
     }
@@ -574,21 +555,21 @@ public class EngineState {
 
         VarState local = addRelationAndTrimValue(this.varsState.get(lhs), relation.rhs(), relation.relation());
         this.varsState.set(lhs, local);
-        //this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
+        // this.localsState.compute(relation.rhs(), (k, v) -> v.addRelation(new VarRelation(lhs, relation.relation().invert())));
 
         if (relation.relation() == Relation.NOT_EQUAL) {
             // != is not transitive, but symmetric
             this.varsState.set(relation.rhs(),
-                addRelationAndTrimValue(this.varsState.get(relation.rhs()), lhs, Relation.NOT_EQUAL));
+                    addRelationAndTrimValue(this.varsState.get(relation.rhs()), lhs, Relation.NOT_EQUAL));
             return;
         }
 
         local.relations().stream()
-            .filter(r -> r.relation() == relation.relation().invert())
-            .forEach(r -> addRelationAndExtendTransitive(r.rhs(), relation));
+                .filter(r -> r.relation() == relation.relation().invert())
+                .forEach(r -> addRelationAndExtendTransitive(r.rhs(), relation));
         local.relations().stream()
-            .filter(r -> r.relation() == relation.relation())
-            .forEach(r -> addRelationAndExtendTransitive(r.rhs(), new VarRelation(lhs, relation.relation().invert())));
+                .filter(r -> r.relation() == relation.relation())
+                .forEach(r -> addRelationAndExtendTransitive(r.rhs(), new VarRelation(lhs, relation.relation().invert())));
     }
 
     private VarState addRelationAndTrimValue(VarState state, int rhs, Relation relation) {
@@ -636,22 +617,21 @@ public class EngineState {
         if (o == null || getClass() != o.getClass()) return false;
         EngineState that = (EngineState) o;
         return Objects.equals(varsState, that.varsState) && Objects.equals(stack, that.stack) &&
-            Objects.equals(initialFieldValues, that.initialFieldValues) &&
-            Objects.equals(fieldValues, that.fieldValues) &&
-            Objects.equals(liveFields, that.liveFields);
+                Objects.equals(initialParamValues, that.initialParamValues) &&
+                Objects.equals(liveFields, that.liveFields);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(varsState, stack, initialFieldValues, fieldValues, liveFields);
+        return Objects.hash(varsState, stack, initialParamValues, liveFields);
     }
 
     @Override
     public String toString() {
         return "stack: " + this.stack
-            + " fields: [" + this.liveFields.entrySet().stream()
-            .map(e -> e.getKey() + ": $" + this.fieldValues.get(e.getValue()))
-            .collect(Collectors.joining(", "))
-            + "] values: " + this.varsState;
+                + " fields: [" + this.liveFields.entrySet().stream()
+                .map(e -> e.getKey() + ": $" + e.getValue())
+                .collect(Collectors.joining(", "))
+                + "] values: " + this.varsState;
     }
 }

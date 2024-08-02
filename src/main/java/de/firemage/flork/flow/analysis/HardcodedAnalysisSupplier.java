@@ -22,7 +22,7 @@ public class HardcodedAnalysisSupplier {
         }
     }
 
-    private void addAnalysis(CtExecutableReference<?> executable, List<VarId> parameterNames, FlowContext context) {
+    private void addAnalysis(CtExecutableReference<?> executable, List<String> parameterNames, FlowContext context) {
         var method = context.getCachedMethod(executable);
         this.hardcodedMethods.put(FlowContext.buildQualifiedExecutableName(executable),
             new HardcodedMethodAnalysis(method, parameterNames, context));

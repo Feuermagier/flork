@@ -53,17 +53,17 @@ public class TestUtil {
     }
 
     public static void canReturn(ValueSet value, MethodAnalysis analysis) {
-        boolean ok = analysis.getReturnStates().stream().anyMatch(r -> r.value().isSupersetOf(value));
+        boolean ok = analysis.getReturnStates().stream().anyMatch(r -> r.getReturnValue().isSupersetOf(value));
         assertTrue(ok);
     }
 
     public static void mustReturn(ValueSet value, MethodAnalysis analysis) {
         assertEquals(1, analysis.getReturnStates().size());
-        assertEquals(value, analysis.getReturnStates().getFirst().value());
+        assertEquals(value, analysis.getReturnStates().getFirst().getReturnValue());
     }
 
     public static void cannotReturn(ValueSet value, MethodAnalysis analysis) {
-        boolean ok = analysis.getReturnStates().stream().noneMatch(r -> r.value().isSupersetOf(value));
+        boolean ok = analysis.getReturnStates().stream().noneMatch(r -> r.getReturnValue().isSupersetOf(value));
         assertTrue(ok);
     }
 

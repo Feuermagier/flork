@@ -2,7 +2,7 @@ package de.firemage.flork.flow.analysis;
 
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
-import de.firemage.flork.flow.MethodExitState;
+import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.VarId;
 import de.firemage.flork.flow.engine.VarState;
@@ -19,49 +19,45 @@ import java.util.stream.Collectors;
 public class StubMethodAnalysis implements MethodAnalysis {
     private final CachedMethod method;
     private final List<MethodExitState> returnStates;
-    private final List<VarId> parameters;
+    private final List<String> parameters;
 
-    public StubMethodAnalysis(CachedMethod method, List<VarId> parameterNames,
-                              Map<VarId, TypeId> parameterTypes,
+    public StubMethodAnalysis(CachedMethod method, List<String> parameterNames,
+                              List<TypeId> parameterTypes,
                               FlowContext context) {
         this.method = method;
         this.parameters = new ArrayList<>(parameterNames);
 
         var returnType = TypeId.ofFallible(method.getExecutable().getType());
         if (returnType.isEmpty() || returnType.get().isVoid()) {
-            this.returnStates = List.of(new MethodExitState(VoidValue.getInstance(),
-                createGenericParameterConditions(parameterTypes, context)));
+            this.returnStates = List.of(MethodExitState.forReturn(VoidValue.getInstance(),
+                    createGenericParameterConditions(parameterTypes, context)));
         } else {
-            this.returnStates = List.of(new MethodExitState(ValueSet.topForType(returnType.get(), context),
-                createGenericParameterConditions(parameterTypes, context)));
+            this.returnStates = List.of(MethodExitState.forReturn(ValueSet.topForType(returnType.get(), context),
+                    createGenericParameterConditions(parameterTypes, context)));
         }
     }
 
     public static StubMethodAnalysis forReferencedExecutable(CachedMethod method, FlowContext context) {
         var executable = method.getExecutable();
 
-        var paramNames = new ArrayList<VarId>();
-        var paramTypes = new HashMap<VarId, TypeId>();
+        var paramNames = new ArrayList<String>();
+        var paramTypes = new ArrayList<TypeId>();
         var parameters = executable.getParameters();
 
         if (!executable.isStatic()) {
-            paramNames.add(VarId.forLocal("this"));
-            paramTypes.put(VarId.THIS, new TypeId(executable.getDeclaringType()));
+            paramNames.add("this");
+            paramTypes.add(new TypeId(executable.getDeclaringType()));
         }
 
         for (int i = 0; i < parameters.size(); i++) {
-            VarId param = VarId.forLocal("p" + i);
-            paramTypes.put(param, new TypeId(parameters.get(i)));
-            paramNames.add(param);
+            paramNames.add("p" + i);
+            paramTypes.add(new TypeId(parameters.get(i)));
         }
         return new StubMethodAnalysis(method, paramNames, paramTypes, context);
     }
 
-    public static Map<VarId, VarState> createGenericParameterConditions(Map<VarId, TypeId> parameters,
-                                                                        FlowContext context) {
-        return parameters.entrySet().stream()
-            .collect(Collectors.toMap(Map.Entry::getKey,
-                e -> new VarState(ValueSet.topForType(e.getValue(), context), Set.of())));
+    public static List<ValueSet> createGenericParameterConditions(List<TypeId> parameters, FlowContext context) {
+        return parameters.stream().map(t -> ValueSet.topForType(t, context)).toList();
     }
 
     @Override
@@ -70,7 +66,7 @@ public class StubMethodAnalysis implements MethodAnalysis {
     }
 
     @Override
-    public List<VarId> getOrderedParameterNames() {
+    public List<String> getOrderedParameterNames() {
         return this.parameters;
     }
 

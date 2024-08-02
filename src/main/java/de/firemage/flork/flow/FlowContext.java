@@ -5,11 +5,17 @@ import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.CtModel;
 import spoon.reflect.code.CtExpression;
 import spoon.reflect.declaration.CtClass;
+import spoon.reflect.declaration.CtElement;
 import spoon.reflect.declaration.CtInterface;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.factory.Factory;
 import spoon.reflect.reference.CtExecutableReference;
 import spoon.reflect.reference.CtTypeReference;
+
+import java.io.File;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -22,8 +28,9 @@ public class FlowContext {
     private final Factory factory;
     private final CtModel model;
     private final boolean closedWorld;
+    private final EnumMap<StandardExceptions, TypeId> standardExceptions = new EnumMap<>(StandardExceptions.class);
 
-    private int indentationLevel = -1;
+    private final Deque<AnalysisLocation> locationStack = new ArrayDeque<>();
 
     public FlowContext(Factory factory, boolean closedWorld) {
         this.methods = new HashMap<>();
@@ -32,22 +39,38 @@ public class FlowContext {
         this.closedWorld = closedWorld;
 
         this.hardcodedMethods = new HardcodedAnalysisSupplier(this);
+
+        for (var exception : StandardExceptions.values()) {
+            this.standardExceptions.put(exception, new TypeId(factory.Type().createReference(exception.getQualifiedName())));
+        }
     }
 
     public static String buildQualifiedExecutableName(CtExecutableReference<?> executable) {
         return executable.getDeclaringType().getQualifiedName() + "::" + executable.getSignature();
     }
 
-    public void increaseIndentation() {
-        this.indentationLevel++;
+    public void pushLocation() {
+        if (this.locationStack.isEmpty()) {
+            this.locationStack.push(new AnalysisLocation());
+        } else {
+            this.locationStack.push(this.locationStack.peek().next());
+        }
     }
 
-    public void decreaseIndentation() {
-        this.indentationLevel--;
+    public void popLocation() {
+        this.locationStack.pop();
+    }
+
+    public void setCurrentElement(CtElement element) {
+        this.locationStack.peek().setCurrentElement(element);
     }
 
     public void log(String message) {
-        System.out.println("    ".repeat(this.indentationLevel) + message);
+        System.out.println(this.locationStack.peek().formatPrefix() + message);
+    }
+
+    public void logNoPrefix(String message) {
+        System.out.println(this.locationStack.peek().formatEmptyPrefix() + message);
     }
 
     public CtModel getModel() {

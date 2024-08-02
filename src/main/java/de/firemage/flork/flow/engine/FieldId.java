@@ -16,6 +16,10 @@ public record FieldId(int parent, String fieldName) {
     public static FieldId forField(int parent, String name) {
         return new FieldId(parent, name);
     }
+
+    public static FieldId forOwnField(String name) {
+        return new FieldId(EngineState.THIS_VALUE, name);
+    }
     
     public boolean isLocal() {
         return this.parent < 0;

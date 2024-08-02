@@ -37,6 +37,10 @@ public abstract sealed class ValueSet permits BooleanValueSet, IntValueSet, Obje
 
     public abstract boolean isSupersetOf(ValueSet other);
 
+    public boolean isCompatible(ValueSet other) {
+        return this.isSupersetOf(other) || other.isSupersetOf(this);
+    }
+
     public abstract boolean isEmpty();
 
     public abstract BooleanStatus fulfillsRelation(ValueSet other, Relation relation);
