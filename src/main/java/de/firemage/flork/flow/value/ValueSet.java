@@ -9,7 +9,9 @@ public abstract sealed class ValueSet permits BooleanValueSet, IntValueSet, Obje
 
     public static ValueSet topForType(TypeId type, FlowContext context) {
         if (!type.isPrimitive()) {
-            if (context.isEffectivelyFinalType(type)) {
+            if (type.getName().equals("java.lang.Integer")) {
+                return new BoxedIntValueSet(Nullness.UNKNOWN, IntValueSet.topForInt(), context);
+            } else if (context.isEffectivelyFinalType(type)) {
                 return ObjectValueSet.forExactType(Nullness.UNKNOWN, type, context);
             } else {
                 return ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, type, context);

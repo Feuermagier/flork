@@ -8,6 +8,7 @@ import de.firemage.flork.flow.SetStack;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.BooleanValueSet;
+import de.firemage.flork.flow.value.BoxedIntValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
@@ -435,7 +436,7 @@ public class EngineState {
         this.assertNonNull(thisVar);
 
         if (((ObjectValueSet) this.varsState.get(thisVar).value()).isExact()) {
-            return this.call(-1, method.getFixedCallAnalysis());
+            return this.call(thisVar, method.getFixedCallAnalysis());
         } else {
             List<EngineState> resultStates = new ArrayList<>();
             for (MethodAnalysis analysis : method.getVirtualCallAnalyses()) {
@@ -455,6 +456,19 @@ public class EngineState {
         return this.call(-1, method.getFixedCallAnalysis());
     }
 
+    public void box() {
+        int value = this.stack.pop();
+        IntValueSet valueSet = (IntValueSet) this.varsState.get(value).value();
+        this.stack.push(this.createNewVarEntry(new VarState(new BoxedIntValueSet(Nullness.NON_NULL, valueSet, this.context))));
+    }
+
+    public void unbox() {
+        int value = this.stack.pop();
+        this.assertNonNull(value);
+        BoxedIntValueSet boxedValue = (BoxedIntValueSet) this.varsState.get(value).value();
+        this.stack.push(this.createNewVarEntry(new VarState(boxedValue.value())));
+    }
+
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             // No analysis available, so assume the worst and reset everything
@@ -472,8 +486,16 @@ public class EngineState {
 
         // Extract the parameters
         List<Integer> parameters = new ArrayList<>(parameterCount);
-        for (int i = method.getOrderedParameterNames().size() - 1; i >= 0; i--) {
-            parameters.add(this.stack.pop());
+        if (callee != -1) {
+            // Instance methods have an implicit this parameter
+            parameters.add(callee);
+            for (int i = 1; i < method.getOrderedParameterNames().size(); i++) {
+                parameters.add(this.stack.pop());
+            }
+        } else {
+            for (int i = 0; i < method.getOrderedParameterNames().size(); i++) {
+                parameters.add(this.stack.pop());
+            }
         }
 
         List<EngineState> result = new ArrayList<>();
@@ -523,7 +545,9 @@ public class EngineState {
     void assertVarValue(int id, ValueSet value) {
         var oldState = this.varsState.get(id);
         if (!oldState.value().isSupersetOf(value)) {
-            throw new IllegalStateException(this.varsState.get(id).value() + " is not a superset of " + value);
+            if (!value.isSupersetOf(oldState.value())) {
+                throw new IllegalStateException(this.varsState.get(id).value() + " is not a superset of " + value);
+            }
         } else {
             this.varsState.set(id, new VarState(value, oldState.relations()));
         }

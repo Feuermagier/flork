@@ -35,4 +35,15 @@ public class MethodExitState {
     public TypeId getThrownException() {
         return thrownException;
     }
+
+    @Override
+    public String toString() {
+        String s = this.parameterPreconditions.toString() + " -> ";
+        if (this.returnValue != null) {
+            s += "return " + this.returnValue;
+        } else {
+            s += "throw " + this.thrownException;
+        }
+        return s;
+    }
 }

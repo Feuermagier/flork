@@ -4,43 +4,33 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.TypeUtil;
-import de.firemage.flork.flow.Util;
 import de.firemage.flork.flow.engine.Relation;
 
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public final class ObjectValueSet extends ValueSet {
+public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     private static ObjectValueSet nullSet;
 
     private final FlowContext context;
-    private final Nullness nullness;
+    protected final Nullness nullness;
     private final TypeId supertype;
     private final Set<TypeId> lowerLimitingTypes;
     private final boolean exact;
-    private final Map<String, ValueSet> fields;
 
     public ObjectValueSet(Nullness nullness, TypeId supertype, Set<TypeId> lowerLimitingTypes, FlowContext context) {
-        this(nullness, supertype, lowerLimitingTypes, Map.of(), context);
-    }
-
-    public ObjectValueSet(Nullness nullness, TypeId supertype, Set<TypeId> lowerLimitingTypes,
-                          Map<String, ValueSet> fields, FlowContext context) {
         this.nullness = nullness;
         this.supertype = supertype;
         this.lowerLimitingTypes = lowerLimitingTypes;
         this.context = context;
         this.exact = supertype == null || lowerLimitingTypes.contains(supertype);
-        this.fields = fields;
     }
 
     public ObjectValueSet(ObjectValueSet other) {
-        this(other.nullness, other.supertype, new HashSet<>(other.lowerLimitingTypes), new HashMap<>(other.fields),
+        this(other.nullness, other.supertype, new HashSet<>(other.lowerLimitingTypes),
             other.context);
     }
 
@@ -53,15 +43,15 @@ public final class ObjectValueSet extends ValueSet {
     }
 
     public static ObjectValueSet forExactType(Nullness nullness, TypeId type, FlowContext context) {
-        return new ObjectValueSet(nullness, type, Set.of(type), Map.of(), context);
+        return new ObjectValueSet(nullness, type, Set.of(type), context);
     }
 
     public static ObjectValueSet forUnconstrainedType(Nullness nullness, TypeId type, FlowContext context) {
-        return new ObjectValueSet(nullness, type, Set.of(), Map.of(), context);
+        return new ObjectValueSet(nullness, type, Set.of(), context);
     }
 
     public static ObjectValueSet bottom(FlowContext context) {
-        return new ObjectValueSet(Nullness.BOTTOM, null, Set.of(), Map.of(), context);
+        return new ObjectValueSet(Nullness.BOTTOM, null, Set.of(), context);
     }
 
     private static boolean typesMatch(ObjectValueSet a, ObjectValueSet b) {
@@ -102,10 +92,6 @@ public final class ObjectValueSet extends ValueSet {
         return this.exact;
     }
 
-    public ValueSet getFieldValue(String name) {
-        return this.fields.get(name);
-    }
-
     public TypeId getFieldType(String name) {
         return new TypeId(this.supertype.type().getDeclaredOrInheritedField(name).getType());
     }
@@ -133,8 +119,7 @@ public final class ObjectValueSet extends ValueSet {
             var resultType = TypeUtil.findLowestCommonSupertype(this.supertype, other.supertype, this.context);
             var resultBounds =
                 mergeLowerBounds(this.supertype, this.lowerLimitingTypes, other.supertype, other.lowerLimitingTypes);
-            return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultBounds,
-                Util.mergeMaps(this.fields, other.fields, ValueSet::merge), this.context);
+            return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultBounds, this.context);
         }
     }
 
@@ -147,12 +132,7 @@ public final class ObjectValueSet extends ValueSet {
             return this;
         } else if (this.exact && other.exact) {
             if (typesMatch(this, other)) {
-                var mergedFields = Util.mergeMapsFailIfNull(this.fields, other.fields, ValueSet::tryMergeExact);
-                if (mergedFields == null) {
-                    return null;
-                }
-                return new ObjectValueSet(this.nullness.merge(other.nullness), this.supertype, this.lowerLimitingTypes,
-                    mergedFields, this.context);
+                return new ObjectValueSet(this.nullness.merge(other.nullness), this.supertype, this.lowerLimitingTypes, this.context);
             } else {
                 return null;
             }
@@ -184,7 +164,6 @@ public final class ObjectValueSet extends ValueSet {
                 this.nullness.intersect(other.nullness),
                 other.supertype,
                 intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                Util.mergeMaps(this.fields, other.fields, ValueSet::intersect),
                 this.context
             );
         } else if (this.supertype.isSubtypeOf(other.supertype)
@@ -193,7 +172,6 @@ public final class ObjectValueSet extends ValueSet {
                 this.nullness.intersect(other.nullness),
                 this.supertype,
                 intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                Util.mergeMaps(this.fields, other.fields, ValueSet::intersect),
                 this.context
             );
         } else {
@@ -277,12 +255,7 @@ public final class ObjectValueSet extends ValueSet {
             return "bot";
         }
 
-        String result = switch (this.nullness) {
-            case NULL -> "null";
-            case NON_NULL -> "non-null";
-            case UNKNOWN -> "maybe-null";
-            case BOTTOM -> "impossible";
-        };
+        String result = nullness.toString();
         result += "/" + (this.isExact() ? "=" : "<=") + this.supertype.getName();
         if (!this.isExact() && !this.lowerLimitingTypes.isEmpty()) {
             result +=

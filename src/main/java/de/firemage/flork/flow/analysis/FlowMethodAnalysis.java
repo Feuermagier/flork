@@ -37,6 +37,8 @@ import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtParameter;
+import spoon.reflect.declaration.CtType;
+import spoon.reflect.reference.CtTypeReference;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -151,6 +153,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                     }
                 } else {
                     analyzeExpression(ret.getReturnedExpression(), engine);
+                    this.checkForBoxing(this.method.getExecutable().getType(), ret.getReturnedExpression().getType(), engine);
                 }
                 this.returnStates.addAll(buildExitStates(engine));
                 engine.pop();
@@ -292,7 +295,15 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
     private void analyzeEagerBinary(CtBinaryOperator<?> operator, FlowEngine engine) {
         analyzeExpression(operator.getLeftHandOperand(), engine);
+        if (!operator.getLeftHandOperand().getType().isPrimitive()) {
+            engine.unbox();
+        }
+
         analyzeExpression(operator.getRightHandOperand(), engine);
+        if (!operator.getRightHandOperand().getType().isPrimitive()) {
+            engine.unbox();
+        }
+
         switch (operator.getKind()) {
             case PLUS -> engine.add();
             case MINUS -> engine.subtract();
@@ -309,15 +320,20 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeInvocation(CtInvocation<?> invocation, FlowEngine engine) {
-        // Hack: push the this-pointer if we call the super or another (via this(...)) constructor
+        var executable = invocation.getExecutable();
+
+        // Push the this-pointer if we call the super or another (via this(...)) constructor
         // (i.e. a call to a constructor that is not a CtConstructorCall)
-        if (invocation.getExecutable().isConstructor()) {
+        if (executable.isConstructor()) {
             engine.pushThis();
         }
 
         CachedMethod calledMethod = this.context.getCachedMethod(invocation.getExecutable());
+        // Analyze the arguments in reverse order, since they will be popped in this order from the stack
         for (int i = invocation.getArguments().size() - 1; i >= 0; i--) {
-            analyzeExpression(invocation.getArguments().get(i), engine);
+            var argument = invocation.getArguments().get(i);
+            analyzeExpression(argument, engine);
+            this.checkForBoxing(executable.getParameters().get(i), argument.getType(), engine);
         }
         if (calledMethod.isStatic()) {
             engine.callStatic(calledMethod);
@@ -426,6 +442,14 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
         engine.join(singleIterationBranch);
         engine.join(skipBranch);
+    }
+
+    private void checkForBoxing(CtTypeReference<?> expectedType, CtTypeReference<?> actualType, FlowEngine engine) {
+        if (expectedType.isPrimitive() && !actualType.isPrimitive()) {
+            engine.unbox();
+        } else if (!expectedType.isPrimitive() && actualType.isPrimitive()) {
+            engine.box();
+        }
     }
 
     private List<MethodExitState> buildExitStates(FlowEngine engine) {

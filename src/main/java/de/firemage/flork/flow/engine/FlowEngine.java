@@ -233,6 +233,16 @@ public class FlowEngine {
         this.log("callConstructor " + method.getName());
     }
 
+    public void box() {
+        this.forEachState(EngineState::box);
+        this.log("box");
+    }
+
+    public void unbox() {
+        this.forEachState(EngineState::unbox);
+        this.log("unbox");
+    }
+
     @Override
     public String toString() {
         return "States (" + this.states.size() + "): " + this.states;

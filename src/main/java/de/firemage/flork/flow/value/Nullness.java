@@ -49,4 +49,14 @@ public enum Nullness {
     public boolean canBeNull() {
         return this == NULL || this == UNKNOWN;
     }
+
+    @Override
+    public String toString() {
+        return switch (this) {
+            case NULL -> "null";
+            case NON_NULL -> "non-null";
+            case UNKNOWN -> "maybe-null";
+            case BOTTOM -> "impossible";
+        };
+    }
 }
