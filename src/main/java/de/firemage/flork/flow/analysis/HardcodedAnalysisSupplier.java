@@ -17,6 +17,7 @@ public class HardcodedAnalysisSupplier {
         try {
             this.addAnalysis(context.getFactory().Constructor().createReference(Object.class.getConstructor()),
                 List.of(), context);
+            this.addAnalysis(context.getFactory().Method().createReference(Object.class.getMethod("getClass")), List.of(), context);
         } catch (NoSuchMethodException ex) {
             throw new IllegalStateException(ex);
         }

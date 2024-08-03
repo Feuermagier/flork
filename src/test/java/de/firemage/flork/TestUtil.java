@@ -34,7 +34,7 @@ public class TestUtil {
     public static FlowContext getFlowContext(SpoonResource resource, boolean closedWorld) {
         Launcher launcher = new Launcher();
         launcher.addInputResource(resource);
-        launcher.addInputResource(new FileSystemFolder("jdk-minified"));
+        // launcher.addInputResource(new FileSystemFolder("jdk-minified"));
         launcher.getEnvironment().setShouldCompile(true);
         launcher.getEnvironment().setNoClasspath(true);
         launcher.getEnvironment().setCommentEnabled(true);

@@ -39,8 +39,7 @@ public final class AnalysisLocation {
     }
 
     public String formatPrefix() {
-        String prefix = String.format("(%s:%s) ", this.file, this.line);
-        return ("%-" + (this.indentation * 2 + 15) + "s").formatted(prefix);
+        return ("%-" + (this.indentation * 2 + 15) + "s").formatted(this.toString());
     }
 
     public String formatEmptyPrefix() {
@@ -49,5 +48,10 @@ public final class AnalysisLocation {
 
     public AnalysisLocation next() {
         return new AnalysisLocation(this.indentation + 1);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("(%s:%s)", this.file, this.line);
     }
 }

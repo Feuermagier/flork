@@ -57,6 +57,16 @@ public class FlowEngine {
         return new FlowEngine(handledStates, this.context);
     }
 
+    public List<EngineState> getAndClearExceptionalStates() {
+        var result = this.exceptionalStates;
+        this.exceptionalStates = new ArrayList<>();
+        return result;
+    }
+
+    public void addExceptionalStates(Collection<EngineState> states) {
+        this.exceptionalStates.addAll(states);
+    }
+
     public FlowEngine cloneEngine() {
         return new FlowEngine(this.states.stream()
                 .map(EngineState::fork)

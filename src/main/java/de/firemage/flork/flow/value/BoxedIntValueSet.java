@@ -40,8 +40,11 @@ public final class BoxedIntValueSet extends ObjectValueSet {
 
     @Override
     public boolean isSupersetOf(ValueSet o) {
-        BoxedIntValueSet other = (BoxedIntValueSet) o;
-        return this.nullness.isSupersetOf(other.nullness) && this.value.isSupersetOf(other.value);
+        if (o instanceof BoxedIntValueSet other) {
+            return this.nullness.isSupersetOf(other.nullness) && this.value.isSupersetOf(other.value);
+        } else {
+            return super.isSupersetOf(o);
+        }
     }
 
     @Override

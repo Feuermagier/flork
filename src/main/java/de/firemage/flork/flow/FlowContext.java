@@ -49,11 +49,15 @@ public class FlowContext {
         return executable.getDeclaringType().getQualifiedName() + "::" + executable.getSignature();
     }
 
+    public AnalysisLocation getLocation() {
+        return this.locationStack.peek();
+    }
+
     public void pushLocation() {
         if (this.locationStack.isEmpty()) {
             this.locationStack.push(new AnalysisLocation());
         } else {
-            this.locationStack.push(this.locationStack.peek().next());
+            this.locationStack.push(this.getLocation().next());
         }
     }
 
@@ -62,15 +66,15 @@ public class FlowContext {
     }
 
     public void setCurrentElement(CtElement element) {
-        this.locationStack.peek().setCurrentElement(element);
+        this.getLocation().setCurrentElement(element);
     }
 
     public void log(String message) {
-        System.out.println(this.locationStack.peek().formatPrefix() + message);
+        System.out.println(this.getLocation().formatPrefix() + message);
     }
 
     public void logNoPrefix(String message) {
-        System.out.println(this.locationStack.peek().formatEmptyPrefix() + message);
+        System.out.println(this.getLocation().formatEmptyPrefix() + message);
     }
 
     public CtModel getModel() {

@@ -453,7 +453,8 @@ public class EngineState {
     }
 
     public List<EngineState> callConstructor(CachedMethod method) {
-        return this.call(-1, method.getFixedCallAnalysis());
+        int thisVar = this.stack.peek(method.getExecutable().getParameters().size());
+        return this.call(thisVar, method.getFixedCallAnalysis());
     }
 
     public void box() {
@@ -497,6 +498,9 @@ public class EngineState {
                 parameters.add(this.stack.pop());
             }
         }
+
+        // Pop the caller
+        this.pop();
 
         List<EngineState> result = new ArrayList<>();
         returnState:

@@ -12,6 +12,7 @@ import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.VoidValue;
+import spoon.reflect.code.BinaryOperatorKind;
 import spoon.reflect.code.CtAnnotationFieldAccess;
 import spoon.reflect.code.CtAssignment;
 import spoon.reflect.code.CtBinaryOperator;
@@ -30,6 +31,7 @@ import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtStatement;
 import spoon.reflect.code.CtSuperAccess;
 import spoon.reflect.code.CtThisAccess;
+import spoon.reflect.code.CtTry;
 import spoon.reflect.code.CtTypeAccess;
 import spoon.reflect.code.CtUnaryOperator;
 import spoon.reflect.code.CtVariableRead;
@@ -163,6 +165,23 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 engine.clear();
             }
             case CtWhile whileLoop -> analyzeWhileLoop(whileLoop, engine);
+            case CtTry tryBlock -> {
+                // TODO consider finally blocks
+                this.context.log("=== Try block");
+                var outerExceptionals = engine.getAndClearExceptionalStates();
+                analyzeBlock(tryBlock.getBody(), engine);
+                for (var catcher : tryBlock.getCatchers()) {
+                    this.context.log("=== Catch " + catcher.getParameter().getType());
+                    var catcherEngine = engine.extractExceptionalStatesForHandler(TypeId.ofFallible(catcher.getParameter().getType()).get());
+                    if (catcherEngine.isImpossibleState()) {
+                        this.context.log("-> Unreachable");
+                        continue;
+                    }
+                    analyzeBlock(catcher.getBody(), catcherEngine);
+                    engine.join(catcherEngine);
+                }
+                engine.addExceptionalStates(outerExceptionals);
+            }
             case CtComment ignored -> {
             }
             default -> throw new UnsupportedOperationException(statement.getClass().getName());
@@ -186,10 +205,26 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 }
             }
             case CtUnaryOperator<?> operator -> {
-                analyzeExpression(operator.getOperand(), engine);
                 switch (operator.getKind()) {
-                    case NOT -> engine.not();
-                    case NEG -> engine.negate();
+                    case NOT -> {
+                        analyzeExpression(operator.getOperand(), engine);
+                        engine.not();
+                    }
+                    case NEG -> {
+                        analyzeExpression(operator.getOperand(), engine);
+                        engine.negate();
+                    }
+                    case POSTINC -> {
+                        if (operator.getOperand() instanceof CtVariableWrite<?> write) {
+                            String local = write.getVariable().getSimpleName();
+                            engine.pushLocal(local);
+                            engine.pushValue(IntValueSet.ofIntSingle(1));
+                            engine.add();
+                            engine.storeLocal(local);
+                        } else {
+                            throw new UnsupportedOperationException(operator.getOperand().getClass().getName());
+                        }
+                    }
                     default -> throw new UnsupportedOperationException();
                 }
             }
@@ -206,6 +241,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 // Can't handle this for now, so play safeTypeId.ofFallible
                 engine.pushValue(ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(access.getAccessedType()), this.context));
             }
+            case CtVariableWrite<?> ignored -> throw new IllegalStateException("Write expression should be handled in assignment");
             case CtLambda<?> lambda -> {
                 // Lambdas basically continue the current control flow, with a few additional variables (the lambda's parameters) added
                 // However, we need to make sure that the lambda's variables to captured variables are not immediately visible to the surrounding scope
@@ -229,7 +265,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
                 engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
             }
-            default -> throw new UnsupportedOperationException(expression.getClass().getName());
+            default -> throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());
         }
 
         expression.putMetadata(FlowContext.VALUE_KEY, engine.peekOrVoid());
@@ -295,12 +331,12 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
     private void analyzeEagerBinary(CtBinaryOperator<?> operator, FlowEngine engine) {
         analyzeExpression(operator.getLeftHandOperand(), engine);
-        if (!operator.getLeftHandOperand().getType().isPrimitive()) {
+        if (onlyAppliesToPrimitive(operator.getKind()) && !operator.getLeftHandOperand().getType().isPrimitive()) {
             engine.unbox();
         }
 
         analyzeExpression(operator.getRightHandOperand(), engine);
-        if (!operator.getRightHandOperand().getType().isPrimitive()) {
+        if (onlyAppliesToPrimitive(operator.getKind()) && !operator.getRightHandOperand().getType().isPrimitive()) {
             engine.unbox();
         }
 
@@ -457,5 +493,9 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 .map(
                         s -> MethodExitState.forReturn(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getInitialState()))
                 .toList();
+    }
+
+    private boolean onlyAppliesToPrimitive(BinaryOperatorKind op) {
+        return op != BinaryOperatorKind.EQ && op != BinaryOperatorKind.NE;
     }
 }
