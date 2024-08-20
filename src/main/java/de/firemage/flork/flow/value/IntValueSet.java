@@ -2,6 +2,7 @@ package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.MathUtil;
+import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
 
 import java.util.ArrayList;
@@ -484,6 +485,15 @@ public final class IntValueSet extends ValueSet {
             }
         }
         return false;
+    }
+
+    @Override
+    public ValueSet castTo(TypeId newType) {
+        if (newType.isInt()) {
+            return this;
+        } else {
+            throw new IllegalArgumentException("Cannot cast int to " + newType.getName());
+        }
     }
 
     @Override

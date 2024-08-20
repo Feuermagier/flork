@@ -37,6 +37,38 @@ public record TypeId(CtTypeReference<?> type) {
         return this.getName().equals("void");
     }
 
+    public boolean isBoolean() {
+        return this.getName().equals("boolean");
+    }
+
+    public boolean isInt() {
+        return this.getName().equals("int");
+    }
+
+    public boolean isLong() {
+        return this.getName().equals("long");
+    }
+
+    public boolean isFloat() {
+        return this.getName().equals("float");
+    }
+
+    public boolean isDouble() {
+        return this.getName().equals("double");
+    }
+
+    public boolean isByte() {
+        return this.getName().equals("byte");
+    }
+
+    public boolean isShort() {
+        return this.getName().equals("short");
+    }
+
+    public boolean isChar() {
+        return this.getName().equals("char");
+    }
+
     public boolean isJDKType() {
         return this.type.isShadow();
     }

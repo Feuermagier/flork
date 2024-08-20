@@ -49,6 +49,8 @@ public abstract sealed class ValueSet permits BooleanValueSet, IntValueSet, Obje
 
     public abstract ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
 
+    public abstract ValueSet castTo(TypeId newType);
+
     public abstract boolean equals(Object o);
 
     public abstract int hashCode();

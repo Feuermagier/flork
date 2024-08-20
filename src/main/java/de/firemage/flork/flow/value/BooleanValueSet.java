@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
 
 import java.util.Objects;
@@ -127,6 +128,15 @@ public final class BooleanValueSet extends ValueSet {
             case NOT_EQUAL -> throw new UnsupportedOperationException();
             default -> throw new IllegalStateException("Cannot compare booleans with " + relation);
         };
+    }
+
+    @Override
+    public ValueSet castTo(TypeId newType) {
+        if (newType.isBoolean()) {
+            return this;
+        } else {
+            throw new IllegalArgumentException("Cannot cast boolean to " + newType.getName());
+        }
     }
 
     @Override

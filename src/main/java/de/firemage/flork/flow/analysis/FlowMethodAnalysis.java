@@ -31,6 +31,7 @@ import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtStatement;
 import spoon.reflect.code.CtSuperAccess;
 import spoon.reflect.code.CtThisAccess;
+import spoon.reflect.code.CtThrow;
 import spoon.reflect.code.CtTry;
 import spoon.reflect.code.CtTypeAccess;
 import spoon.reflect.code.CtUnaryOperator;
@@ -165,6 +166,10 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 engine.clear();
             }
             case CtWhile whileLoop -> analyzeWhileLoop(whileLoop, engine);
+            case CtThrow throwStmt -> {
+                analyzeExpression(throwStmt.getThrownExpression(), engine);
+                engine.throwException();
+            }
             case CtTry tryBlock -> {
                 // TODO consider finally blocks
                 this.context.log("=== Try block");
@@ -266,6 +271,11 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
             }
             default -> throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());
+        }
+
+        // Process all type casts
+        for (var cast : expression.getTypeCasts()) {
+            engine.cast(new TypeId(cast));
         }
 
         expression.putMetadata(FlowContext.VALUE_KEY, engine.peekOrVoid());

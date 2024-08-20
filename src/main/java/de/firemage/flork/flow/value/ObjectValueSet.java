@@ -31,13 +31,13 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
 
     public ObjectValueSet(ObjectValueSet other) {
         this(other.nullness, other.supertype, new HashSet<>(other.lowerLimitingTypes),
-            other.context);
+                other.context);
     }
 
     public static ObjectValueSet getNullSet(FlowContext context) {
         if (nullSet == null) {
             nullSet =
-                ObjectValueSet.forExactType(Nullness.NULL, new TypeId(context.getFactory().Type().NULL_TYPE), context);
+                    ObjectValueSet.forExactType(Nullness.NULL, new TypeId(context.getFactory().Type().NULL_TYPE), context);
         }
         return nullSet;
     }
@@ -60,27 +60,27 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
 
     private static Set<TypeId> mergeLowerBounds(TypeId aRoot, Set<TypeId> a, TypeId bRoot, Set<TypeId> b) {
         return Stream.concat(
-            a.stream().map(type -> {
-                for (TypeId other : b) {
-                    if (type.isSubtypeOf(other)) {
-                        return type;
-                    } else if (other.isSubtypeOf(type)) {
-                        return other;
+                a.stream().map(type -> {
+                    for (TypeId other : b) {
+                        if (type.isSubtypeOf(other)) {
+                            return type;
+                        } else if (other.isSubtypeOf(type)) {
+                            return other;
+                        }
                     }
-                }
-                return null;
-            }).filter(Objects::nonNull),
-            Stream.concat(
-                // Types for which the respective other set does not make any statement
-                a.stream().filter(t -> TypeUtil.areSiblingTypes(bRoot, t)),
-                b.stream().filter(t -> TypeUtil.areSiblingTypes(aRoot, t)))
+                    return null;
+                }).filter(Objects::nonNull),
+                Stream.concat(
+                        // Types for which the respective other set does not make any statement
+                        a.stream().filter(t -> TypeUtil.areSiblingTypes(bRoot, t)),
+                        b.stream().filter(t -> TypeUtil.areSiblingTypes(aRoot, t)))
         ).collect(Collectors.toSet());
     }
 
     private static Set<TypeId> intersectLowerBounds(Set<TypeId> a, Set<TypeId> b) {
         return Stream.concat(
-            a.stream().map(type -> b.stream().filter(type::isSubtypeOf).findAny().orElse(type)),
-            b.stream().map(type -> a.stream().filter(type::isSubtypeOf).findAny().orElse(type))
+                a.stream().map(type -> b.stream().filter(type::isSubtypeOf).findAny().orElse(type)),
+                b.stream().map(type -> a.stream().filter(type::isSubtypeOf).findAny().orElse(type))
         ).collect(Collectors.toSet());
     }
 
@@ -118,7 +118,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
         } else {
             var resultType = TypeUtil.findLowestCommonSupertype(this.supertype, other.supertype, this.context);
             var resultBounds =
-                mergeLowerBounds(this.supertype, this.lowerLimitingTypes, other.supertype, other.lowerLimitingTypes);
+                    mergeLowerBounds(this.supertype, this.lowerLimitingTypes, other.supertype, other.lowerLimitingTypes);
             return new ObjectValueSet(this.nullness.merge(other.nullness), resultType, resultBounds, this.context);
         }
     }
@@ -159,20 +159,20 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
         if (this.nullness.intersect(other.nullness) == Nullness.BOTTOM) {
             return ObjectValueSet.bottom(this.context);
         } else if (other.supertype.isSubtypeOf(this.supertype)
-            && this.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(other.supertype, t))) {
+                && this.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(other.supertype, t))) {
             return new ObjectValueSet(
-                this.nullness.intersect(other.nullness),
-                other.supertype,
-                intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                this.context
+                    this.nullness.intersect(other.nullness),
+                    other.supertype,
+                    intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
+                    this.context
             );
         } else if (this.supertype.isSubtypeOf(other.supertype)
-            && other.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(this.supertype, t))) {
+                && other.lowerLimitingTypes.stream().noneMatch(t -> TypeUtil.isTrueSubtype(this.supertype, t))) {
             return new ObjectValueSet(
-                this.nullness.intersect(other.nullness),
-                this.supertype,
-                intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
-                this.context
+                    this.nullness.intersect(other.nullness),
+                    this.supertype,
+                    intersectLowerBounds(this.lowerLimitingTypes, other.lowerLimitingTypes),
+                    this.context
             );
         } else {
             return ObjectValueSet.bottom(this.context);
@@ -191,9 +191,9 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
         }
 
         return this.nullness.isSupersetOf(other.nullness)
-            && other.supertype.isSubtypeOf(this.supertype)
-            && this.lowerLimitingTypes.stream()
-            .noneMatch(t -> other.supertype.isSubtypeOf(t) && !t.equals(other.supertype));
+                && other.supertype.isSubtypeOf(this.supertype)
+                && this.lowerLimitingTypes.stream()
+                .noneMatch(t -> other.supertype.isSubtypeOf(t) && !t.equals(other.supertype));
     }
 
     @Override
@@ -235,13 +235,30 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
+    public ValueSet castTo(TypeId newType) {
+        if (this.isEmpty()) {
+            return ObjectValueSet.bottom(this.context);
+        } else if (newType.isSubtypeOf(this.supertype)) {
+            // Downcast
+            return new ObjectValueSet(this.nullness, newType, this.lowerLimitingTypes, this.context);
+        } else if (this.supertype.isSubtypeOf(newType)) {
+            // Upcast
+            return this;
+        } else if (this.supertype.isNulltype()) {
+            return ObjectValueSet.forExactType(Nullness.NULL, newType, this.context);
+        } else {
+            throw new IllegalStateException("Cannot cast " + this + " to " + newType);
+        }
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ObjectValueSet that = (ObjectValueSet) o;
         return this.lowerLimitingTypes.equals(that.lowerLimitingTypes)
-            && nullness == that.nullness
-            && Objects.equals(supertype, that.supertype);
+                && nullness == that.nullness
+                && Objects.equals(supertype, that.supertype);
     }
 
     @Override
@@ -259,7 +276,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
         result += "/" + (this.isExact() ? "=" : "<=") + this.supertype.getName();
         if (!this.isExact() && !this.lowerLimitingTypes.isEmpty()) {
             result +=
-                "," + this.lowerLimitingTypes.stream().map(t -> ">=" + t.getName()).collect(Collectors.joining(","));
+                    "," + this.lowerLimitingTypes.stream().map(t -> ">=" + t.getName()).collect(Collectors.joining(","));
         }
         return result;
     }

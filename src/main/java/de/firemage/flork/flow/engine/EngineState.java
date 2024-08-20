@@ -470,6 +470,17 @@ public class EngineState {
         this.stack.push(this.createNewVarEntry(new VarState(boxedValue.value())));
     }
 
+    public void cast(TypeId newType) {
+        int value = this.stack.pop();
+        ValueSet valueSet = this.varsState.get(value).value();
+        this.stack.push(this.createNewVarEntry(new VarState(valueSet.castTo(newType))));
+    }
+
+    public void throwException() {
+        ObjectValueSet value = (ObjectValueSet) this.varsState.get(this.stack.pop()).value();
+        this.activeException = value.getSupertype();
+    }
+
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             // No analysis available, so assume the worst and reset everything

@@ -253,6 +253,15 @@ public class FlowEngine {
         this.log("unbox");
     }
 
+    public void cast(TypeId newType) {
+        this.forEachState(s -> s.cast(newType));
+        this.log("cast " + newType.getName());
+    }
+
+    public void throwException() {
+        this.forEachState(EngineState::throwException);
+    }
+
     @Override
     public String toString() {
         return "States (" + this.states.size() + "): " + this.states;

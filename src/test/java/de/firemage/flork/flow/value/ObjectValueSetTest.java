@@ -232,6 +232,41 @@ class ObjectValueSetTest {
         );
     }
 
+    @Test
+    void testCastTo() {
+        var top = context.getType("Top");
+        var midA = context.getType("MidA");
+        var child1MidA = context.getType("Child1MidA");
+        var midB = context.getType("MidB");
+
+        // Downcast
+        assertEquals(
+            ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
+            ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, top, context)
+                .castTo(midA)
+        );
+
+        // Upcast
+        assertEquals(
+                ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
+                ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context)
+                        .castTo(top)
+        );
+
+        // No cast
+        assertEquals(
+                ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
+                ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context)
+                        .castTo(midA)
+        );
+
+        // Cast null
+        assertEquals(
+                ObjectValueSet.forExactType(Nullness.NULL, midA, context),
+                ObjectValueSet.getNullSet(context).castTo(midA)
+        );
+    }
+
     private void testIntersect(ObjectValueSet expected, ObjectValueSet a, ObjectValueSet b) {
         assertEquals(expected, a.intersect(b));
         assertEquals(expected, b.intersect(a));

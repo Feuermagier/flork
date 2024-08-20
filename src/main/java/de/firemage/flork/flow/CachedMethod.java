@@ -18,12 +18,11 @@ public class CachedMethod {
     private final CtExecutableReference<?> method;
     private final String qualifiedName;
     private final boolean effectivelyFinal;
-    private final boolean opaque;
+    private final TypeId declaringType;
 
     private StubMethodAnalysis unknownAnalysis;
     private List<MethodAnalysis> virtualCallAnalyses;
     private MethodAnalysis localAnalysis;
-    private TypeId declaringType;
 
     public CachedMethod(CtExecutableReference<?> method, FlowContext context) {
         this.context = context;
@@ -31,12 +30,11 @@ public class CachedMethod {
         this.declaringType = TypeId.ofFallible(method.getDeclaringType()).orElseThrow();
         this.virtualCallAnalyses = null;
         this.localAnalysis = null;
-        this.opaque = method.hasAnnotation(FlorkOpaque.class) || this.declaringType.isJDKType();
         this.qualifiedName = FlowContext.buildQualifiedExecutableName(method);
 
         this.effectivelyFinal = method.isConstructor()
                 || method.isStatic()
-                || method.getDeclaration() instanceof CtMethod m && m.isPrivate()
+                || method.getDeclaration() instanceof CtMethod<?> m && m.isPrivate()
                 || method.isFinal()
                 || method.getDeclaringType() != null && method.getDeclaringType().getModifiers().contains(ModifierKind.FINAL)
                 || context.isClosedWorld() && TypeUtil.getAllOverridingMethods(this.method, this.context).findAny().isEmpty();
@@ -76,7 +74,7 @@ public class CachedMethod {
      * @return
      */
     public MethodAnalysis getFixedCallAnalysis() {
-        if (this.opaque) {
+        if (this.isOpaque()) {
             return this.getUnknownAnalysis();
         }
 
@@ -84,7 +82,7 @@ public class CachedMethod {
     }
 
     public List<MethodAnalysis> getVirtualCallAnalyses() {
-        if (this.opaque) {
+        if (this.isOpaque()) {
             return List.of(this.getUnknownAnalysis());
         }
 
@@ -133,6 +131,15 @@ public class CachedMethod {
             this.context.logNoPrefix("=== Retrieved cached analysis of " + this.method.getSignature());
         }
         return this.localAnalysis;
+    }
+
+    private boolean isOpaque() {
+        var declaration = this.method.getExecutableDeclaration();
+        if (declaration == null) {
+            return true;
+        }
+
+        return declaration.hasAnnotation(FlorkOpaque.class) || this.declaringType.isJDKType();
     }
 
     @Override
