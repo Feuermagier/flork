@@ -75,6 +75,11 @@ public class FlowEngine {
 
     public void clear() {
         this.states.clear();
+        this.exceptionalStates.clear();
+    }
+
+    public boolean isEmpty() {
+        return this.states.isEmpty() && this.exceptionalStates.isEmpty();
     }
 
     public void beginWritesScope() {
@@ -103,6 +108,7 @@ public class FlowEngine {
 
     public void join(FlowEngine other) {
         this.states.addAll(other.states);
+        this.exceptionalStates.addAll(other.exceptionalStates);
     }
 
     public boolean isStackEmpty() {

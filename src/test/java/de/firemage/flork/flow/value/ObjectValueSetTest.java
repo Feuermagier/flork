@@ -236,8 +236,6 @@ class ObjectValueSetTest {
     void testCastTo() {
         var top = context.getType("Top");
         var midA = context.getType("MidA");
-        var child1MidA = context.getType("Child1MidA");
-        var midB = context.getType("MidB");
 
         // Downcast
         assertEquals(

@@ -188,6 +188,8 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
             return false;
         } else if (this.nullness == Nullness.NULL && other.nullness == Nullness.NULL) {
             return true;
+        } else if (this.nullness != Nullness.NON_NULL && other == getNullSet(this.context)) {
+            return true;
         }
 
         return this.nullness.isSupersetOf(other.nullness)

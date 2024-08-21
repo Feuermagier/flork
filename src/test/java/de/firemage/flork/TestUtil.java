@@ -2,6 +2,7 @@ package de.firemage.flork;
 
 import de.firemage.flork.compiler.InMemoryCompiler;
 import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.Launcher;
@@ -67,7 +68,8 @@ public class TestUtil {
         assertTrue(ok);
     }
 
-    private static void compile(String fileContent) {
-        // var fileManager = new StandardJavaFileManager()
+    public static void mustThrow(TypeId exception, MethodAnalysis analysis) {
+        assertEquals(1, analysis.getReturnStates().size());
+        assertEquals(exception, analysis.getReturnStates().getFirst().getThrownException());
     }
 }

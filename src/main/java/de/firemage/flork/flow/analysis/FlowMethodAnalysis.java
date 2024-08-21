@@ -86,18 +86,10 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
         FlowEngine engine = new FlowEngine(thisType, thisPointer, executable.getParameters(), this.context);
         analyzeBlock(executable.getBody(), engine);
-        if (!engine.isStackEmpty()) {
-            throw new IllegalStateException("Stack is not empty after end of method");
-        }
-        if (!engine.isImpossibleState()) {
-            if (this.effectivelyVoid) {
-                this.returnStates.addAll(buildExitStates(engine));
-            } else if (this.method.isConstructor()) {
-                engine.pushThis();
-                this.returnStates.addAll(buildExitStates(engine));
-            } else {
-                throw new IllegalStateException("Missing final return in a non-void method");
-            }
+
+        // Handle thrown exceptions & possible implicit return
+        if (!engine.isEmpty()) {
+            this.buildExitStates(engine, false);
         }
 
         this.context.log(this.getReturnStates().size() + " return states: " + this.getReturnStates());
@@ -130,6 +122,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         }
     }
 
+    // Returns true if the statement is a return statement
     private void analyzeStatement(CtStatement statement, FlowEngine engine) {
         this.context.setCurrentElement(statement);
         switch (statement) {
@@ -149,21 +142,12 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             case CtBlock<?> block -> analyzeBlock(block, engine);
             case CtReturn<?> ret -> {
                 if (ret.getReturnedExpression() == null) {
-                    if (this.method.isConstructor()) {
-                        engine.pushThis();
-                    } else {
-                        engine.pushValue(VoidValue.getInstance());
-                    }
+                    this.buildExitStates(engine, false);
                 } else {
                     analyzeExpression(ret.getReturnedExpression(), engine);
                     this.checkForBoxing(this.method.getExecutable().getType(), ret.getReturnedExpression().getType(), engine);
+                    this.buildExitStates(engine, true);
                 }
-                this.returnStates.addAll(buildExitStates(engine));
-                engine.pop();
-                if (!engine.isStackEmpty()) {
-                    throw new IllegalStateException("Stack is not empty");
-                }
-                engine.clear();
             }
             case CtWhile whileLoop -> analyzeWhileLoop(whileLoop, engine);
             case CtThrow throwStmt -> {
@@ -498,10 +482,30 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         }
     }
 
-    private List<MethodExitState> buildExitStates(FlowEngine engine) {
-        return engine.getCurrentStates().stream()
+    private void buildExitStates(FlowEngine engine, boolean returningExpression) {
+        if (!returningExpression) {
+            if (this.effectivelyVoid) {
+                engine.pushValue(VoidValue.getInstance());
+            } else if (this.method.isConstructor()) {
+                engine.pushThis();
+            }
+        }
+
+        for (var state : engine.getCurrentStates()) {
+            this.returnStates.add(MethodExitState.forReturn(state.peek(), state.getInitialState()));
+        }
+
+        for (var state : engine.getAndClearExceptionalStates()) {
+            this.returnStates.add(MethodExitState.forThrow(state.getActiveException(), state.getInitialState()));
+        }
+
+        engine.clear();
+    }
+
+    private List<MethodExitState> buildThrowExitStates(FlowEngine engine) {
+        return engine.getAndClearExceptionalStates().stream()
                 .map(
-                        s -> MethodExitState.forReturn(this.effectivelyVoid ? VoidValue.getInstance() : s.peek(), s.getInitialState()))
+                        s -> MethodExitState.forThrow(s.getActiveException(), s.getInitialState()))
                 .toList();
     }
 

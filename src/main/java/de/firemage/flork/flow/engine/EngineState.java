@@ -106,6 +106,10 @@ public class EngineState {
         return this.activeException != null;
     }
 
+    public TypeId getActiveException() {
+        return this.activeException;
+    }
+
     public void clearActiveException() {
         this.activeException = null;
     }
@@ -522,14 +526,17 @@ public class EngineState {
             for (int i = 0; i < parameterCount; i++) {
                 var param = this.varsState.get(parameters.get(i)).value();
                 if (!precondition.get(i).isCompatible(param)) {
-                    break returnState;
+                    continue returnState;
                 }
             }
 
             // The preconditions apply, so fork the engine and narrow parameters down to the preconditions
             EngineState newState = this.fork();
             for (int i = 0; i < parameterCount; i++) {
-                newState.assertVarValue(parameters.get(i), precondition.get(i));
+                // newState.assertVarValue(parameters.get(i), precondition.get(i));
+                var oldState = newState.varsState.get(parameters.get(i));
+                var newValue = precondition.get(i).intersect(oldState.value());
+                this.varsState.set(parameters.get(i), new VarState(newValue, oldState.relations()));
             }
 
             // Handle exit state
