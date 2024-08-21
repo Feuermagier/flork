@@ -5,7 +5,7 @@ import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
 
-public abstract sealed class ValueSet permits BooleanValueSet, IntValueSet, ObjectValueSet, VoidValue {
+public abstract sealed class ValueSet permits BooleanValueSet, NumericValueSet, ObjectValueSet, VoidValue {
 
     public static ValueSet topForType(TypeId type, FlowContext context) {
         if (!type.isPrimitive()) {

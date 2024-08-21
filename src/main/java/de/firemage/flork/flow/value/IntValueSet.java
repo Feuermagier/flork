@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  * Therefore, you cannot use this class for longs.
  * This class is immutable, including all its fields!
  */
-public final class IntValueSet extends ValueSet {
+public final class IntValueSet extends NumericValueSet {
     private final List<IntInterval> intervals;
     private final int bits;
     private final long typeMin;
@@ -330,10 +330,22 @@ public final class IntValueSet extends ValueSet {
         return new IntValueSet(this.bits, result);
     }
 
+    @Override
+    public boolean isZero() {
+        return this.isSingle(0);
+    }
+
+    @Override
+    public boolean isOne() {
+        return this.isSingle(1);
+    }
+
+    @Override
     public IntValueSet negate() {
         if (this.isTop()) {
             return this;
         }
+
         List<IntInterval> result = new ArrayList<>(this.intervals.size());
         for (int i = this.intervals.size() - 1; i >= 0; i--) {
             IntInterval interval = this.intervals.get(i);
@@ -350,7 +362,10 @@ public final class IntValueSet extends ValueSet {
         return resultSet;
     }
 
-    public IntValueSet add(IntValueSet other) {
+    @Override
+    public IntValueSet add(NumericValueSet o) {
+        IntValueSet other = (IntValueSet) o;
+
         if (this.isTop() && other.isTop()) {
             return this;
         }
@@ -377,7 +392,10 @@ public final class IntValueSet extends ValueSet {
         return new IntValueSet(this.bits, result);
     }
 
-    public IntValueSet subtract(IntValueSet other) {
+    @Override
+    public IntValueSet subtract(NumericValueSet o) {
+        IntValueSet other = (IntValueSet) o;
+
         if (this.isTop() && other.isTop()) {
             return this;
         }
@@ -404,7 +422,10 @@ public final class IntValueSet extends ValueSet {
         return new IntValueSet(this.bits, result);
     }
 
-    public IntValueSet multiply(IntValueSet other) {
+    @Override
+    public IntValueSet multiply(NumericValueSet o) {
+        IntValueSet other = (IntValueSet) o;
+
         if (this.isTop() && other.isTop()) return this;
         if (this.isSingle(0) || other.isSingle(0)) return IntValueSet.createSingleLike(this, 0);
         if (this.isSingle(1)) return other;
@@ -435,7 +456,10 @@ public final class IntValueSet extends ValueSet {
         return new IntValueSet(this.bits, result);
     }
 
-    public IntValueSet divide(IntValueSet other) {
+    @Override
+    public IntValueSet divide(NumericValueSet o) {
+        IntValueSet other = (IntValueSet) o;
+
         if (this.isTop() && other.isTop()) return this;
         if (other.isSingle(1)) return this;
         if (other.isSingle(-1)) return this.negate();
@@ -454,6 +478,12 @@ public final class IntValueSet extends ValueSet {
             }
         }
         return new IntValueSet(this.bits, result);
+    }
+
+    @Override
+    public NumericValueSet mod(NumericValueSet other) {
+        //TODO implement
+        throw new UnsupportedOperationException("not yet implemented");
     }
 
     public boolean hasCommonValue(IntValueSet other) {
@@ -491,6 +521,8 @@ public final class IntValueSet extends ValueSet {
     public ValueSet castTo(TypeId newType) {
         if (newType.isInt()) {
             return this;
+        } else if (newType.isLong()) {
+            return LongValueSet.ofRange(this.min(), this.max());
         } else {
             throw new IllegalArgumentException("Cannot cast int to " + newType.getName());
         }

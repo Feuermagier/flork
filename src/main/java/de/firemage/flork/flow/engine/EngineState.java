@@ -11,6 +11,7 @@ import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.BoxedIntValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
+import de.firemage.flork.flow.value.NumericValueSet;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import de.firemage.flork.flow.value.VoidValue;
@@ -239,18 +240,18 @@ public class EngineState {
     }
 
     public void negate() {
-        IntValueSet tos = (IntValueSet) this.varsState.get(this.stack.pop()).value();
+        var tos = (NumericValueSet) this.varsState.get(this.stack.pop()).value();
         this.stack.push(this.createNewVarEntry(new VarState(tos.negate())));
     }
 
     public void add() {
         int rhs = this.stack.pop();
         int lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
-        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
-        if (rhsValue.isSingle(0)) {
+        var rhsValue = (NumericValueSet) this.varsState.get(rhs).value();
+        var lhsValue = (NumericValueSet) this.varsState.get(lhs).value();
+        if (rhsValue.isZero()) {
             this.stack.push(lhs);
-        } else if (lhsValue.isSingle(0)) {
+        } else if (lhsValue.isZero()) {
             this.stack.push(rhs);
         } else {
             this.stack.push(this.createNewVarEntry(new VarState(lhsValue.add(rhsValue))));
@@ -260,9 +261,9 @@ public class EngineState {
     public void subtract() {
         int rhs = this.stack.pop();
         int lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
-        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
-        if (rhsValue.isSingle(0)) {
+        var rhsValue = (NumericValueSet) this.varsState.get(rhs).value();
+        var lhsValue = (NumericValueSet) this.varsState.get(lhs).value();
+        if (rhsValue.isZero()) {
             this.stack.push(lhs);
         } else {
             this.stack.push(this.createNewVarEntry(new VarState(lhsValue.subtract(rhsValue))));
@@ -272,11 +273,11 @@ public class EngineState {
     public void multiply() {
         int rhs = this.stack.pop();
         int lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
-        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
-        if (rhsValue.isSingle(1)) {
+        var rhsValue = (NumericValueSet) this.varsState.get(rhs).value();
+        var lhsValue = (NumericValueSet) this.varsState.get(lhs).value();
+        if (rhsValue.isOne()) {
             this.stack.push(lhs);
-        } else if (lhsValue.isSingle(1)) {
+        } else if (lhsValue.isOne()) {
             this.stack.push(rhs);
         } else {
             this.stack.push(this.createNewVarEntry(new VarState(lhsValue.multiply(rhsValue))));
@@ -286,9 +287,9 @@ public class EngineState {
     public void divide() {
         int rhs = this.stack.pop();
         int lhs = this.stack.pop();
-        IntValueSet rhsValue = (IntValueSet) this.varsState.get(rhs).value();
-        IntValueSet lhsValue = (IntValueSet) this.varsState.get(lhs).value();
-        if (rhsValue.isSingle(1)) {
+        var rhsValue = (NumericValueSet) this.varsState.get(rhs).value();
+        var lhsValue = (NumericValueSet) this.varsState.get(lhs).value();
+        if (rhsValue.isOne()) {
             this.stack.push(lhs);
         } else {
             this.stack.push(this.createNewVarEntry(new VarState(lhsValue.divide(rhsValue))));
