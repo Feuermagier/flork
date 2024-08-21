@@ -22,7 +22,6 @@ public class A1Test {
     }
 
     @Test
-    @Disabled("try-catch not yet supported")
     public void testTerminalReadLine() throws IOException {
         var context = TestUtil.getFlowContext(Path.of("test_inputs", "A1"), true);
         var method = TestUtil.getMethod("edu.kit.informatik.Terminal", "readLine", context);
