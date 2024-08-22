@@ -3,18 +3,13 @@ package de.firemage.flork.flow.engine;
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
-import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.ValueSet;
 import spoon.reflect.declaration.CtParameter;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Deque;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -259,9 +254,9 @@ public class FlowEngine {
         this.log("unbox");
     }
 
-    public void cast(TypeId newType) {
-        this.forEachState(s -> s.cast(newType));
-        this.log("cast " + newType.getName());
+    public void castTo(TypeId newType) {
+        this.forEachState(s -> s.castTo(newType));
+        this.log("castTo " + newType.getName());
     }
 
     public void throwException() {

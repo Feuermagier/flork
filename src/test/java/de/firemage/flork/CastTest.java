@@ -1,5 +1,7 @@
 package de.firemage.flork;
 
+import de.firemage.flork.flow.value.BoxedIntValueSet;
+import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import org.junit.jupiter.api.Test;
@@ -135,5 +137,22 @@ public class CastTest {
 
         var bazType = context.getType("Baz");
         TestUtil.mustReturn(ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, bazType, context), analysis);
+    }
+
+    @Test
+    void testDowncastWithBoxing() throws IOException {
+        var code = """
+                public class Foo {
+                    public int foo() {
+                        return (Integer) ((Object) 0);
+                    }
+                }
+                """;
+
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
+        var method = TestUtil.getMethod("Foo", "foo", context);
+        var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
+
+        TestUtil.mustReturn(IntValueSet.ofIntSingle(0), analysis);
     }
 }

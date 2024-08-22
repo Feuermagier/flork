@@ -1,6 +1,5 @@
 package de.firemage.flork.flow.value;
 
-import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.engine.Relation;
 

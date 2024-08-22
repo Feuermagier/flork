@@ -2,13 +2,14 @@ package de.firemage.flork.flow.analysis;
 
 import de.firemage.flork.flow.CachedMethod;
 import de.firemage.flork.flow.FlowContext;
+import de.firemage.flork.flow.PrimitiveTypeRelationship;
 import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.FlowEngine;
 import de.firemage.flork.flow.engine.Relation;
-import de.firemage.flork.flow.engine.VarId;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
+import de.firemage.flork.flow.value.LongValueSet;
 import de.firemage.flork.flow.value.Nullness;
 import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.VoidValue;
@@ -40,7 +41,6 @@ import spoon.reflect.code.CtVariableWrite;
 import spoon.reflect.code.CtWhile;
 import spoon.reflect.declaration.CtExecutable;
 import spoon.reflect.declaration.CtParameter;
-import spoon.reflect.declaration.CtType;
 import spoon.reflect.reference.CtTypeReference;
 
 import java.util.ArrayList;
@@ -134,6 +134,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 engine.createLocal(localDefinition.getSimpleName(), new TypeId(localDefinition.getType()));
                 if (localDefinition.getAssignment() != null) {
                     analyzeExpression(localDefinition.getAssignment(), engine);
+                    doImplicitConversions(localDefinition.getType(), getExpressionType(localDefinition.getAssignment()), engine);
                     engine.storeLocal(localDefinition.getSimpleName());
                     engine.pop();
                 }
@@ -145,7 +146,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                     this.buildExitStates(engine, false);
                 } else {
                     analyzeExpression(ret.getReturnedExpression(), engine);
-                    this.checkForBoxing(this.method.getExecutable().getType(), ret.getReturnedExpression().getType(), engine);
+                    this.doImplicitConversions(this.method.getExecutable().getType(), getExpressionType(ret.getReturnedExpression()), engine);
                     this.buildExitStates(engine, true);
                 }
             }
@@ -230,7 +231,8 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 // Can't handle this for now, so play safeTypeId.ofFallible
                 engine.pushValue(ObjectValueSet.forExactType(Nullness.NON_NULL, new TypeId(access.getAccessedType()), this.context));
             }
-            case CtVariableWrite<?> ignored -> throw new IllegalStateException("Write expression should be handled in assignment");
+            case CtVariableWrite<?> ignored ->
+                    throw new IllegalStateException("Write expression should be handled in assignment");
             case CtLambda<?> lambda -> {
                 // Lambdas basically continue the current control flow, with a few additional variables (the lambda's parameters) added
                 // However, we need to make sure that the lambda's variables to captured variables are not immediately visible to the surrounding scope
@@ -254,12 +256,22 @@ public class FlowMethodAnalysis implements MethodAnalysis {
 
                 engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
             }
-            default -> throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());
+            default ->
+                    throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());
         }
 
         // Process all type casts
-        for (var cast : expression.getTypeCasts()) {
-            engine.cast(new TypeId(cast));
+        var currentType = expression.getType();
+        for (var cast : expression.getTypeCasts().reversed()) {
+            // Boxing may need to happen implicitly here
+            if (cast.isPrimitive() && !currentType.isPrimitive()) {
+                engine.unbox();
+            } else if (!cast.isPrimitive() && currentType.isPrimitive()) {
+                engine.box();
+            }
+
+            engine.castTo(new TypeId(cast));
+            currentType = cast;
         }
 
         expression.putMetadata(FlowContext.VALUE_KEY, engine.peekOrVoid());
@@ -269,6 +281,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         CtExpression<?> lhs = assignment.getAssigned();
         CtExpression<?> rhs = assignment.getAssignment();
         analyzeExpression(rhs, engine);
+        doImplicitConversions(getExpressionType(lhs), getExpressionType(rhs), engine);
 
         if (lhs instanceof CtFieldWrite<?> write) {
             this.analyzeExpression(write.getTarget(), engine);
@@ -285,6 +298,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             switch (literal.getType().getQualifiedName()) {
                 case "boolean" -> engine.pushValue(BooleanValueSet.of((Boolean) literal.getValue()));
                 case "int" -> engine.pushValue(IntValueSet.ofIntSingle((Integer) literal.getValue()));
+                case "long" -> engine.pushValue(LongValueSet.ofSingle((Long) literal.getValue()));
                 default -> throw new UnsupportedOperationException(literal.getType().getSimpleName());
             }
         } else {
@@ -324,14 +338,28 @@ public class FlowMethodAnalysis implements MethodAnalysis {
     }
 
     private void analyzeEagerBinary(CtBinaryOperator<?> operator, FlowEngine engine) {
+        // Two things need to be checked:
+        // - Operands may be boxed, and need to be unboxed
+        // - For numeric operations, one operand may need to be widened to match the other's type
+
+        var lhsType = getExpressionType(operator.getLeftHandOperand());
+        var rhsType = getExpressionType(operator.getRightHandOperand());
+        var tyRelation = PrimitiveTypeRelationship.compareTypes(lhsType, rhsType);
+
         analyzeExpression(operator.getLeftHandOperand(), engine);
         if (onlyAppliesToPrimitive(operator.getKind()) && !operator.getLeftHandOperand().getType().isPrimitive()) {
             engine.unbox();
+        }
+        if (tyRelation == PrimitiveTypeRelationship.RHS_WIDER) {
+            engine.castTo(new TypeId(rhsType));
         }
 
         analyzeExpression(operator.getRightHandOperand(), engine);
         if (onlyAppliesToPrimitive(operator.getKind()) && !operator.getRightHandOperand().getType().isPrimitive()) {
             engine.unbox();
+        }
+        if (tyRelation == PrimitiveTypeRelationship.LHS_WIDER) {
+            engine.castTo(new TypeId(lhsType));
         }
 
         switch (operator.getKind()) {
@@ -363,7 +391,7 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         for (int i = invocation.getArguments().size() - 1; i >= 0; i--) {
             var argument = invocation.getArguments().get(i);
             analyzeExpression(argument, engine);
-            this.checkForBoxing(executable.getParameters().get(i), argument.getType(), engine);
+            this.doImplicitConversions(executable.getParameters().get(i), getExpressionType(argument), engine);
         }
         if (calledMethod.isStatic()) {
             engine.callStatic(calledMethod);
@@ -474,14 +502,6 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         engine.join(skipBranch);
     }
 
-    private void checkForBoxing(CtTypeReference<?> expectedType, CtTypeReference<?> actualType, FlowEngine engine) {
-        if (expectedType.isPrimitive() && !actualType.isPrimitive()) {
-            engine.unbox();
-        } else if (!expectedType.isPrimitive() && actualType.isPrimitive()) {
-            engine.box();
-        }
-    }
-
     private void buildExitStates(FlowEngine engine, boolean returningExpression) {
         if (!returningExpression) {
             if (this.effectivelyVoid) {
@@ -502,14 +522,50 @@ public class FlowMethodAnalysis implements MethodAnalysis {
         engine.clear();
     }
 
-    private List<MethodExitState> buildThrowExitStates(FlowEngine engine) {
-        return engine.getAndClearExceptionalStates().stream()
-                .map(
-                        s -> MethodExitState.forThrow(s.getActiveException(), s.getInitialState()))
-                .toList();
-    }
-
     private boolean onlyAppliesToPrimitive(BinaryOperatorKind op) {
         return op != BinaryOperatorKind.EQ && op != BinaryOperatorKind.NE;
+    }
+
+    private CtTypeReference<?> getExpressionType(CtExpression<?> expression) {
+        if (expression.getTypeCasts().isEmpty()) {
+            return expression.getType();
+        } else {
+            return expression.getTypeCasts().getFirst();
+        }
+    }
+
+    private void doImplicitConversions(CtTypeReference<?> newType, CtTypeReference<?> oldType, FlowEngine engine) {
+        // Boxing / unboxing
+        if (oldType.isPrimitive() && !newType.isPrimitive()) {
+            // Boxing conversion (JLS 5.1.7)
+            engine.box();
+
+            // This is valid Java: Object x = 0
+            // Here, the value is boxed first (yielding Integer), and then cast to Object
+            // Therefore, we may need to add a cast here
+            if (!oldType.box().equals(newType)) {
+                engine.castTo(new TypeId(newType));
+            }
+
+            return;
+        } else if (!oldType.isPrimitive() && newType.isPrimitive()) {
+            // Unboxing conversion (JLS 5.1.8)
+            engine.unbox();
+            return;
+        }
+
+        // Reference upcasts
+        if (!oldType.isPrimitive()) {
+            // Widening reference conversion (JLS 5.1.5)
+            // Narrowing reference conversions cannot happen implicitly, so we can ignore them
+            engine.castTo(new TypeId(newType));
+            return;
+        }
+
+        // Primitive conversions
+        var relation = PrimitiveTypeRelationship.compareTypes(newType, oldType);
+        if (relation == PrimitiveTypeRelationship.LHS_WIDER) {
+            engine.castTo(new TypeId(newType));
+        }
     }
 }

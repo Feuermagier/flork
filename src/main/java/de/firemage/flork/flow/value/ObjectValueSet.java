@@ -238,14 +238,19 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
 
     @Override
     public ValueSet castTo(TypeId newType) {
+        // if (newType.getName().equals("java.lang.Integer")) {
+        //     return new BoxedIntValueSet(this.nullness, IntValueSet.topForInt(), this.context);
+        // }
+        // // TODO handle the other boxed types
+
         if (this.isEmpty()) {
             return ObjectValueSet.bottom(this.context);
-        } else if (newType.isSubtypeOf(this.supertype)) {
-            // Downcast
-            return new ObjectValueSet(this.nullness, newType, this.lowerLimitingTypes, this.context);
         } else if (this.supertype.isSubtypeOf(newType)) {
             // Upcast
             return this;
+        } else if (newType.isSubtypeOf(this.supertype)) {
+            // Downcast
+            return new ObjectValueSet(this.nullness, newType, this.lowerLimitingTypes, this.context);
         } else if (this.supertype.isNulltype()) {
             return ObjectValueSet.forExactType(Nullness.NULL, newType, this.context);
         } else {

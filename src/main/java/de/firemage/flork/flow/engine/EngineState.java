@@ -475,7 +475,7 @@ public class EngineState {
         this.stack.push(this.createNewVarEntry(new VarState(boxedValue.value())));
     }
 
-    public void cast(TypeId newType) {
+    public void castTo(TypeId newType) {
         int value = this.stack.pop();
         ValueSet valueSet = this.varsState.get(value).value();
         this.stack.push(this.createNewVarEntry(new VarState(valueSet.castTo(newType))));
