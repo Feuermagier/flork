@@ -25,7 +25,15 @@ public final class MathUtil {
         return Math.min(a, Math.min(b, Math.min(c, d)));
     }
 
+    public static double min4(double a, double b, double c, double d) {
+        return Math.min(a, Math.min(b, Math.min(c, d)));
+    }
+
     public static long max4(long a, long b, long c, long d) {
+        return Math.max(a, Math.max(b, Math.max(c, d)));
+    }
+
+    public static double max4(double a, double b, double c, double d) {
         return Math.max(a, Math.max(b, Math.max(c, d)));
     }
 

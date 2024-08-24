@@ -1,6 +1,6 @@
 package de.firemage.flork.flow.value;
 
-public abstract sealed class NumericValueSet extends ValueSet permits IntValueSet, LongValueSet {
+public abstract sealed class NumericValueSet extends ValueSet permits DoubleValueSet, IntValueSet, LongValueSet {
     public abstract boolean isZero();
     public abstract boolean isOne();
     public abstract NumericValueSet negate();

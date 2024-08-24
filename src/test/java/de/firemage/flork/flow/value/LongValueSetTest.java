@@ -15,27 +15,27 @@ public class LongValueSetTest {
         assertEquals(LongValueSet.ofRange(-1, 1), LongValueSet.ofRange(-1, 1).negate());
         assertEquals(LongValueSet.ofSingle(Long.MIN_VALUE), LongValueSet.ofSingle(Long.MIN_VALUE).negate());
         assertEquals(LongValueSet.ofSingle(Long.MIN_VALUE + 1), LongValueSet.ofSingle(Long.MAX_VALUE).negate());
-        assertSame(LongValueSet.top(), LongValueSet.top().negate());
+        assertSame(LongValueSet.TOP, LongValueSet.TOP.negate());
     }
 
     @Test
     void add() {
-        assertSame(LongValueSet.top(), LongValueSet.top().add(LongValueSet.top()));
+        assertSame(LongValueSet.TOP, LongValueSet.TOP.add(LongValueSet.TOP));
         assertEquals(LongValueSet.ofSingle(2), LongValueSet.ofSingle(1).add(LongValueSet.ofSingle(1)));
         assertEquals(LongValueSet.ofRange(1, 3), LongValueSet.ofRange(0, 1).add(LongValueSet.ofRange(1, 2)));
-        assertSame(LongValueSet.top(), LongValueSet.ofSingle(1).add(LongValueSet.top()));
+        assertSame(LongValueSet.TOP, LongValueSet.ofSingle(1).add(LongValueSet.TOP));
         assertEquals(LongValueSet.ofSingle(Long.MIN_VALUE), LongValueSet.ofSingle(Long.MAX_VALUE).add(LongValueSet.ofSingle(1)));
-        assertSame(LongValueSet.top(), LongValueSet.ofSingle(Long.MAX_VALUE).add(LongValueSet.ofRange(0, 1)));
+        assertSame(LongValueSet.TOP, LongValueSet.ofSingle(Long.MAX_VALUE).add(LongValueSet.ofRange(0, 1)));
     }
 
     @Test
     void subtract() {
-        assertSame(LongValueSet.top(), LongValueSet.top().subtract(LongValueSet.top()));
+        assertSame(LongValueSet.TOP, LongValueSet.TOP.subtract(LongValueSet.TOP));
         assertEquals(LongValueSet.ofSingle(0), LongValueSet.ofSingle(1).subtract(LongValueSet.ofSingle(1)));
         assertEquals(LongValueSet.ofRange(-2, 0), LongValueSet.ofRange(0, 1).subtract(LongValueSet.ofRange(1, 2)));
-        assertSame(LongValueSet.top(), LongValueSet.ofSingle(1).subtract(LongValueSet.top()));
+        assertSame(LongValueSet.TOP, LongValueSet.ofSingle(1).subtract(LongValueSet.TOP));
         assertEquals(LongValueSet.ofSingle(Long.MAX_VALUE), LongValueSet.ofSingle(Long.MIN_VALUE).subtract(LongValueSet.ofSingle(1)));
-        assertSame(LongValueSet.top(), LongValueSet.ofSingle(Long.MIN_VALUE).subtract(LongValueSet.ofRange(0, 1)));
+        assertSame(LongValueSet.TOP, LongValueSet.ofSingle(Long.MIN_VALUE).subtract(LongValueSet.ofRange(0, 1)));
     }
 
     @Test

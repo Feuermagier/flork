@@ -8,8 +8,8 @@ import de.firemage.flork.flow.engine.Relation;
  * A lot less sophisticated than IntValueSet
  */
 public final class LongValueSet extends NumericValueSet {
-    private static final LongValueSet TOP = new LongValueSet(Long.MIN_VALUE, Long.MAX_VALUE);
-    private static final LongValueSet BOTTOM = new LongValueSet(1, -1);
+    public static final LongValueSet TOP = new LongValueSet(Long.MIN_VALUE, Long.MAX_VALUE);
+    public static final LongValueSet BOTTOM = new LongValueSet(1, -1);
 
     private final long min;
     private final long max;
@@ -17,10 +17,6 @@ public final class LongValueSet extends NumericValueSet {
     private LongValueSet(long min, long max) {
         this.min = min;
         this.max = max;
-    }
-
-    public static LongValueSet top() {
-        return TOP;
     }
 
     public static LongValueSet ofRange(long min, long max) {
@@ -209,6 +205,8 @@ public final class LongValueSet extends NumericValueSet {
             return this;
         } else if (newType.isInt()) {
             return IntValueSet.ofIntRange((int) this.min, (int) this.max);
+        } else if (newType.isDouble()) {
+            return DoubleValueSet.ofRange(this.min, this.max);
         } else {
             throw new IllegalArgumentException("Cannot cast long to " + newType.getName());
         }
@@ -219,6 +217,11 @@ public final class LongValueSet extends NumericValueSet {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         LongValueSet that = (LongValueSet) o;
+
+        if (this.isEmpty() && that.isEmpty()) {
+            return true;
+        }
+
         return this.min == that.min && this.max == that.max;
     }
 

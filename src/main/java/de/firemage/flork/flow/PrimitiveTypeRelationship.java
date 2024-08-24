@@ -49,7 +49,8 @@ public enum PrimitiveTypeRelationship {
                 case "double" -> RHS_WIDER;
                 default -> LHS_WIDER;
             };
-            default -> throw new IllegalStateException();
+            case "double" -> LHS_WIDER;
+            default -> throw new IllegalStateException(lhsName);
         };
     }
 

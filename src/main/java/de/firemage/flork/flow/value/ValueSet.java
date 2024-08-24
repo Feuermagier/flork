@@ -20,7 +20,8 @@ public abstract sealed class ValueSet permits BooleanValueSet, NumericValueSet, 
             return switch (type.getName()) {
                 case "boolean" -> BooleanValueSet.top();
                 case "int" -> IntValueSet.topForInt();
-                case "long" -> LongValueSet.top();
+                case "long" -> LongValueSet.TOP;
+                case "double" -> DoubleValueSet.TOP;
                 default -> throw new UnsupportedOperationException(type.getName());
             };
         }

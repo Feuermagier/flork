@@ -523,6 +523,8 @@ public final class IntValueSet extends NumericValueSet {
             return this;
         } else if (newType.isLong()) {
             return LongValueSet.ofRange(this.min(), this.max());
+        } else if (newType.isDouble()) {
+            return DoubleValueSet.ofRange(this.min(), this.max());
         } else {
             throw new IllegalArgumentException("Cannot cast int to " + newType.getName());
         }
