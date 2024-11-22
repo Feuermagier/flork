@@ -4,6 +4,7 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
+import de.firemage.flork.flow.engine.ValueStack;
 import spoon.reflect.code.CtNewArray;
 
 import java.util.Objects;
@@ -36,6 +37,26 @@ public final class ArrayValueSet extends ValueSet {
         this.minLength = minLength;
         this.maxLength = maxLength;
         this.nullness = nullness;
+    }
+
+    public int getMinLength() {
+        return minLength;
+    }
+
+    public int getMaxLength() {
+        return maxLength;
+    }
+
+    public Nullness getNullness() {
+        return nullness;
+    }
+
+    public ArrayValueSet asNonNull() {
+        if (this.nullness == Nullness.NON_NULL) {
+            return this;
+        } else {
+            return new ArrayValueSet(this.minLength, this.maxLength, this.nullness.asNonNull());
+        }
     }
 
     @Override

@@ -493,6 +493,29 @@ public class EngineState {
         this.pushValue(ArrayValueSet.newFromLength(length));
     }
 
+    public void arrayRead(TypeId elementType) {
+        this.doArrayIndex();
+        this.pushValue(ValueSet.topForType(elementType, this.context));
+    }
+
+    public void arrayWrite() {
+        // We aren't interested in the written value
+        this.doArrayIndex();
+    }
+
+    private void doArrayIndex() {
+        var index = this.stack.pop();
+        var indexValue = (IntValueSet) this.varsState.get(index).value();
+
+        int array = this.stack.pop();
+        this.assertNonNull(array);
+        var arrayValue = (ArrayValueSet) this.varsState.get(array).value();
+
+        // TODO report if the index is never in bounds
+        var inBoundsIndex = indexValue.splitAtAbove(arrayValue.getMinLength()).splitAtBelow(arrayValue.getMaxLength());
+        this.assertVarValue(index, inBoundsIndex);
+    }
+
     private List<EngineState> call(int callee, MethodAnalysis method) {
         if (method.getReturnStates() == null) {
             // No analysis available, so assume the worst and reset everything
@@ -585,7 +608,12 @@ public class EngineState {
 
     void assertNonNull(int id) {
         var oldState = this.varsState.get(id);
-        this.varsState.set(id, new VarState(((ObjectValueSet) oldState.value()).asNonNull(), oldState.relations()));
+        var newValue = switch (oldState.value()) {
+            case ObjectValueSet obj -> obj.asNonNull();
+            case ArrayValueSet arr -> arr.asNonNull();
+            default -> throw new IllegalStateException("Only objects and arrays can be null");
+        };
+        this.varsState.set(id, new VarState(newValue, oldState.relations()));
     }
 
     private void recordWrite(FieldId field) {

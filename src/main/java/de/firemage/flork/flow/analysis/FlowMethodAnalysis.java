@@ -16,6 +16,9 @@ import de.firemage.flork.flow.value.ObjectValueSet;
 import de.firemage.flork.flow.value.VoidValue;
 import spoon.reflect.code.BinaryOperatorKind;
 import spoon.reflect.code.CtAnnotationFieldAccess;
+import spoon.reflect.code.CtArrayAccess;
+import spoon.reflect.code.CtArrayRead;
+import spoon.reflect.code.CtArrayWrite;
 import spoon.reflect.code.CtAssignment;
 import spoon.reflect.code.CtBinaryOperator;
 import spoon.reflect.code.CtBlock;
@@ -286,6 +289,11 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                     engine.pushValue(new ArrayValueSet(length, length, Nullness.NON_NULL));
                 }
             }
+            case CtArrayRead<?> arrayRead -> {
+                analyzeExpression(arrayRead.getTarget(), engine);
+                analyzeExpression(arrayRead.getIndexExpression(), engine);
+                engine.arrayRead(new TypeId(arrayRead.getType()));
+            }
             default ->
                     throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());
         }
@@ -318,6 +326,10 @@ public class FlowMethodAnalysis implements MethodAnalysis {
             engine.storeField(write.getVariable().getSimpleName());
         } else if (lhs instanceof CtVariableWrite<?> write) {
             engine.storeLocal(write.getVariable().getSimpleName());
+        } else if (lhs instanceof CtArrayWrite<?> arrayWrite) {
+            analyzeExpression(arrayWrite.getTarget(), engine);
+            analyzeExpression(arrayWrite.getIndexExpression(), engine);
+            engine.arrayWrite();
         } else {
             throw new UnsupportedOperationException(lhs.getClass().getName());
         }

@@ -267,6 +267,14 @@ public class FlowEngine {
         this.forEachState(EngineState::createArrayFromDimension);
     }
 
+    public void arrayRead(TypeId elementType) {
+        this.forEachState(s -> s.arrayRead(elementType));
+    }
+
+    public void arrayWrite() {
+        this.forEachState(EngineState::arrayWrite);
+    }
+
     @Override
     public String toString() {
         return "States (" + this.states.size() + "): " + this.states;

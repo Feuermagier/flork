@@ -99,12 +99,8 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     public ObjectValueSet asNonNull() {
         if (this.nullness == Nullness.NON_NULL) {
             return this;
-        } else if (this.nullness == Nullness.UNKNOWN) {
-            return new ObjectValueSet(Nullness.NON_NULL, this.supertype, this.lowerLimitingTypes, this.context);
-        } else if (this.nullness == Nullness.NULL) {
-            throw new IllegalStateException("would throw an NPE");
         } else {
-            throw new IllegalStateException("Nullness is bottom");
+            return new ObjectValueSet(nullness.asNonNull(), this.supertype, this.lowerLimitingTypes, this.context);
         }
     }
 

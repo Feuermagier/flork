@@ -50,6 +50,18 @@ public enum Nullness {
         return this == NULL || this == UNKNOWN;
     }
 
+    public Nullness asNonNull() {
+        if (this == Nullness.NON_NULL) {
+            return this;
+        } else if (this == Nullness.UNKNOWN) {
+            return Nullness.NON_NULL;
+        } else if (this == Nullness.NULL) {
+            throw new IllegalStateException("would throw an NPE");
+        } else {
+            throw new IllegalStateException("Nullness is bottom");
+        }
+    }
+
     @Override
     public String toString() {
         return switch (this) {

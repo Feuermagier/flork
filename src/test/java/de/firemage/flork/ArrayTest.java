@@ -38,4 +38,22 @@ public class ArrayTest {
         var method = TestUtil.getMethod("Foo", "foo", context);
         var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
     }
+
+    @Test
+    void testArrayAccess() throws IOException {
+        var code = """
+                public class Foo {
+                    public void foo() {
+                        int[][] x = {{1, 2, 3}, {4, 5}};
+                        var y = x[0];
+                        x[0] = null;
+                        x[1][0] = 42;
+                    }
+                }
+                """;
+
+        var context = TestUtil.getFlowContext("Foo.java", code, true);
+        var method = TestUtil.getMethod("Foo", "foo", context);
+        var analysis = context.getCachedMethod(method.getReference()).getFixedCallAnalysis();
+    }
 }
