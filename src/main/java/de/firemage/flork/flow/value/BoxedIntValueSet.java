@@ -21,18 +21,18 @@ public final class BoxedIntValueSet extends ObjectValueSet {
     }
 
     @Override
-    public ValueSet merge(ValueSet o) {
+    public BoxedIntValueSet merge(ValueSet o) {
         BoxedIntValueSet other = (BoxedIntValueSet) o;
         return new BoxedIntValueSet(this.nullness.merge(other.nullness), this.value.merge(other.value), this.context);
     }
 
     @Override
-    public ValueSet tryMergeExact(ValueSet o) {
+    public BoxedIntValueSet tryMergeExact(ValueSet o) {
         return this.merge(o);
     }
 
     @Override
-    public ValueSet intersect(ValueSet o) {
+    public BoxedIntValueSet intersect(ValueSet o) {
        BoxedIntValueSet other = (BoxedIntValueSet) o;
          return new BoxedIntValueSet(this.nullness.intersect(other.nullness), this.value.intersect(other.value), this.context);
     }
@@ -47,7 +47,8 @@ public final class BoxedIntValueSet extends ObjectValueSet {
     }
 
     @Override
-    public ValueSet removeNotFulfillingValues(ValueSet o, Relation relation) {
+    public ObjectValueSet removeNotFulfillingValues(ValueSet o, Relation relation) {
+        // TODO wtf isn't this properly implemented??
         return super.removeNotFulfillingValues(o, relation);
     }
 

@@ -4,11 +4,14 @@ import de.firemage.flork.flow.BooleanStatus;
 import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
+import spoon.reflect.reference.CtArrayTypeReference;
 
-public abstract sealed class ValueSet permits BooleanValueSet, NumericValueSet, ObjectValueSet, VoidValue {
+public abstract sealed class ValueSet permits ArrayValueSet, BooleanValueSet, NumericValueSet, ObjectValueSet, VoidValue {
 
     public static ValueSet topForType(TypeId type, FlowContext context) {
-        if (!type.isPrimitive()) {
+        if (type.type().isArray()) {
+            return ArrayValueSet.TOP;
+        } else if (!type.isPrimitive()) {
             if (type.getName().equals("java.lang.Integer")) {
                 return new BoxedIntValueSet(Nullness.UNKNOWN, IntValueSet.topForInt(), context);
             } else if (context.isEffectivelyFinalType(type)) {
@@ -51,7 +54,7 @@ public abstract sealed class ValueSet permits BooleanValueSet, NumericValueSet, 
 
     public abstract ValueSet removeNotFulfillingValues(ValueSet other, Relation relation);
 
-    public abstract ValueSet castTo(TypeId newType);
+    public abstract ValueSet castTo(TypeId newType, FlowContext context);
 
     public abstract boolean equals(Object o);
 

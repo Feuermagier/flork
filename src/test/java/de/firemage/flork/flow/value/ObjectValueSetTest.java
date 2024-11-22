@@ -241,27 +241,27 @@ class ObjectValueSetTest {
         assertEquals(
             ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
             ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, top, context)
-                .castTo(midA)
+                .castTo(midA, context)
         );
 
         // Upcast
         assertEquals(
                 ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
                 ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context)
-                        .castTo(top)
+                        .castTo(top, context)
         );
 
         // No cast
         assertEquals(
                 ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context),
                 ObjectValueSet.forUnconstrainedType(Nullness.UNKNOWN, midA, context)
-                        .castTo(midA)
+                        .castTo(midA, context)
         );
 
         // Cast null
         assertEquals(
                 ObjectValueSet.forExactType(Nullness.NULL, midA, context),
-                ObjectValueSet.getNullSet(context).castTo(midA)
+                ObjectValueSet.getNullSet(context).castTo(midA, context)
         );
     }
 

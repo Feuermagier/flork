@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MathUtil;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
@@ -18,6 +19,8 @@ import java.util.stream.Collectors;
  * This class is immutable, including all its fields!
  */
 public final class IntValueSet extends NumericValueSet {
+    public static IntValueSet BOTTOM = new IntValueSet(32, List.of());
+
     private final List<IntInterval> intervals;
     private final int bits;
     private final long typeMin;
@@ -257,6 +260,10 @@ public final class IntValueSet extends NumericValueSet {
 
     public boolean isSingle() {
         return this.intervals.size() == 1 && this.intervals.getFirst().min == this.intervals.getFirst().max;
+    }
+
+    public boolean isBottom() {
+        return this.intervals.isEmpty();
     }
 
     public long min() {
@@ -518,7 +525,7 @@ public final class IntValueSet extends NumericValueSet {
     }
 
     @Override
-    public ValueSet castTo(TypeId newType) {
+    public ValueSet castTo(TypeId newType, FlowContext context) {
         if (newType.isInt()) {
             return this;
         } else if (newType.isLong()) {

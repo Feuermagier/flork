@@ -263,6 +263,10 @@ public class FlowEngine {
         this.forEachState(EngineState::throwException);
     }
 
+    public void createArrayFromDimension() {
+        this.forEachState(EngineState::createArrayFromDimension);
+    }
+
     @Override
     public String toString() {
         return "States (" + this.states.size() + "): " + this.states;

@@ -1,5 +1,6 @@
 package de.firemage.flork.flow;
 
+import spoon.reflect.reference.CtArrayTypeReference;
 import spoon.reflect.reference.CtTypeReference;
 import java.util.Objects;
 import java.util.Optional;
@@ -71,6 +72,14 @@ public record TypeId(CtTypeReference<?> type) {
 
     public boolean isJDKType() {
         return this.type.isShadow();
+    }
+
+    public Optional<TypeId> getArrayComponentType() {
+        if (this.type.isArray()) {
+            return Optional.of(new TypeId(((CtArrayTypeReference<?>) this.type).getComponentType()));
+        } else {
+            return Optional.empty();
+        }
     }
 
     @Override

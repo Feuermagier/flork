@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.MathUtil;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
@@ -274,7 +275,7 @@ public final class DoubleValueSet extends NumericValueSet {
     }
 
     @Override
-    public ValueSet castTo(TypeId newType) {
+    public ValueSet castTo(TypeId newType, FlowContext context) {
         // ((int) Double.NaN) is 0
 
         if (newType.isDouble()) {

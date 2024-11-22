@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
 
@@ -131,7 +132,7 @@ public final class BooleanValueSet extends ValueSet {
     }
 
     @Override
-    public ValueSet castTo(TypeId newType) {
+    public ValueSet castTo(TypeId newType, FlowContext context) {
         if (newType.isBoolean()) {
             return this;
         } else {

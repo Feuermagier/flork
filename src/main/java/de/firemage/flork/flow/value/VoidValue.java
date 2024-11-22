@@ -1,6 +1,7 @@
 package de.firemage.flork.flow.value;
 
 import de.firemage.flork.flow.BooleanStatus;
+import de.firemage.flork.flow.FlowContext;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.Relation;
 
@@ -71,7 +72,7 @@ public final class VoidValue extends ValueSet {
     }
 
     @Override
-    public ValueSet castTo(TypeId newType) {
+    public ValueSet castTo(TypeId newType, FlowContext context) {
         throw new IllegalStateException("Cannot cast void to " + newType.getName());
     }
 

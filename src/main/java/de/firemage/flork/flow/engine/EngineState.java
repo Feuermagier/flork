@@ -7,6 +7,7 @@ import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.SetStack;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.analysis.MethodAnalysis;
+import de.firemage.flork.flow.value.ArrayValueSet;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.BoxedIntValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
@@ -478,12 +479,18 @@ public class EngineState {
     public void castTo(TypeId newType) {
         int value = this.stack.pop();
         ValueSet valueSet = this.varsState.get(value).value();
-        this.stack.push(this.createNewVarEntry(new VarState(valueSet.castTo(newType))));
+        this.stack.push(this.createNewVarEntry(new VarState(valueSet.castTo(newType, this.context))));
     }
 
     public void throwException() {
         ObjectValueSet value = (ObjectValueSet) this.varsState.get(this.stack.pop()).value();
         this.activeException = value.getSupertype();
+    }
+
+    public void createArrayFromDimension() {
+        IntValueSet length = (IntValueSet) this.peek();
+        this.pop();
+        this.pushValue(ArrayValueSet.newFromLength(length));
     }
 
     private List<EngineState> call(int callee, MethodAnalysis method) {

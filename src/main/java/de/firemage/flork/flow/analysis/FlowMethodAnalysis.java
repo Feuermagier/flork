@@ -7,6 +7,7 @@ import de.firemage.flork.flow.exit.MethodExitState;
 import de.firemage.flork.flow.TypeId;
 import de.firemage.flork.flow.engine.FlowEngine;
 import de.firemage.flork.flow.engine.Relation;
+import de.firemage.flork.flow.value.ArrayValueSet;
 import de.firemage.flork.flow.value.BooleanValueSet;
 import de.firemage.flork.flow.value.IntValueSet;
 import de.firemage.flork.flow.value.LongValueSet;
@@ -28,6 +29,7 @@ import spoon.reflect.code.CtInvocation;
 import spoon.reflect.code.CtLambda;
 import spoon.reflect.code.CtLiteral;
 import spoon.reflect.code.CtLocalVariable;
+import spoon.reflect.code.CtNewArray;
 import spoon.reflect.code.CtReturn;
 import spoon.reflect.code.CtStatement;
 import spoon.reflect.code.CtSuperAccess;
@@ -255,6 +257,34 @@ public class FlowMethodAnalysis implements MethodAnalysis {
                 this.context.popLocation();
 
                 engine.pushValue(ObjectValueSet.forUnconstrainedType(Nullness.NON_NULL, new TypeId(lambda.getType()), this.context));
+            }
+            case CtNewArray<?> newArray -> {
+                var dimExpressions = newArray.getDimensionExpressions();
+                if (dimExpressions != null && !dimExpressions.isEmpty()) {
+                    // int[][] x = new int[3][5]
+                    // Dimension expressions are evaluated left-to-right (JLS §15.10.2)
+
+                    // We are only interested in the outermost array's length
+                    analyzeExpression(dimExpressions.getFirst(), engine);
+                    engine.createArrayFromDimension();
+
+                    for (int i = 1; i < dimExpressions.size(); i++) {
+                        analyzeExpression(dimExpressions.get(i), engine);
+                        engine.pop();
+                    }
+                } else {
+                    // int[][] x = {{1, 2}, {3}}
+
+                    // Evaluate all initializer expressions
+                    for (var initializer : newArray.getElements()) {
+                        analyzeExpression(initializer, engine);
+                        engine.pop();
+                    }
+
+                    // Create the array
+                    int length = newArray.getElements().size();
+                    engine.pushValue(new ArrayValueSet(length, length, Nullness.NON_NULL));
+                }
             }
             default ->
                     throw new UnsupportedOperationException(expression.getClass().getName() + " @ " + this.context.getLocation());

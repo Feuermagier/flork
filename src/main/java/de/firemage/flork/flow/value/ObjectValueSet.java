@@ -15,7 +15,7 @@ import java.util.stream.Stream;
 public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     private static ObjectValueSet nullSet;
 
-    private final FlowContext context;
+    public final FlowContext context;
     protected final Nullness nullness;
     private final TypeId supertype;
     private final Set<TypeId> lowerLimitingTypes;
@@ -109,7 +109,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
-    public ValueSet merge(ValueSet o) {
+    public ObjectValueSet merge(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
         if (this.isEmpty()) {
             return other;
@@ -124,7 +124,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
-    public ValueSet tryMergeExact(ValueSet o) {
+    public ObjectValueSet tryMergeExact(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
         if (this.isEmpty()) {
             return other;
@@ -148,7 +148,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
-    public ValueSet intersect(ValueSet o) {
+    public ObjectValueSet intersect(ValueSet o) {
         ObjectValueSet other = (ObjectValueSet) o;
 
         // This or other is the nulltype, for which we do not know supertypes / lower bounds
@@ -221,7 +221,7 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
-    public ValueSet removeNotFulfillingValues(ValueSet o, Relation relation) {
+    public ObjectValueSet removeNotFulfillingValues(ValueSet o, Relation relation) {
         ObjectValueSet other = (ObjectValueSet) o;
         if (relation == Relation.EQUAL) {
             return this.intersect(other);
@@ -237,11 +237,15 @@ public sealed class ObjectValueSet extends ValueSet permits BoxedIntValueSet {
     }
 
     @Override
-    public ValueSet castTo(TypeId newType) {
+    public ValueSet castTo(TypeId newType, FlowContext context) {
         // if (newType.getName().equals("java.lang.Integer")) {
         //     return new BoxedIntValueSet(this.nullness, IntValueSet.topForInt(), this.context);
         // }
         // // TODO handle the other boxed types
+
+        if (newType.type().isArray()) {
+            return new ArrayValueSet(0, Integer.MAX_VALUE, this.nullness);
+        }
 
         if (this.isEmpty()) {
             return ObjectValueSet.bottom(this.context);
